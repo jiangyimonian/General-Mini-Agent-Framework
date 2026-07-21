@@ -1,0 +1,51 @@
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Generated reports and local runtime data
+output/
+*.log
+.agent_memory/
+chroma/
+chroma_db/
+.chroma/
+
+# Test and coverage outputs
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+coverage.json
+
+# Type checker and linter caches
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# Jupyter
+.ipynb_checkpoints/

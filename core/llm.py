@@ -3,11 +3,44 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
+
+
+@runtime_checkable
+class ChatModel(Protocol):
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> "LLMResponse": ...
+
+
+class ModelRequestError(RuntimeError):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        endpoint: str = "",
+    ) -> None:
+        super().__init__(self._sanitize(message))
+        self.status_code = status_code
+        self.endpoint = endpoint
+
+    @staticmethod
+    def _sanitize(message: str) -> str:
+        sanitized = re.sub(
+            r"(?i)(authorization\s*:\s*(?:bearer\s+)?)\S+",
+            r"\1[REDACTED]",
+            message,
+        )
+        return re.sub(r"\bsk-[A-Za-z0-9_-]+\b", "[REDACTED]", sanitized)
 
 
 # ─── 类型定义 ───────────────────────────────────────────────
@@ -74,8 +107,8 @@ class LLM:
 
     def chat(
         self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         """调用 LLM，支持 function calling"""
         body: dict[str, Any] = {
@@ -107,7 +140,7 @@ class LLM:
                 continue
 
         raise RuntimeError(
-            f"LLM 调用失败（已重试 {self.config.max_retries} 次）: {last_error}"
+            f"LLM 调用失败（已重试 {self.config.max_retries} 次）: {last_error}",
         )
 
     def chat_stream(

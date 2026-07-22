@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Literal, NotRequired, TypedDict
 
-from .llm import LLM, LLMResponse
+from .llm import ChatModel
 from .tools import Tool, ToolRegistry
 from .memory import SlidingWindowMemory
 
@@ -14,13 +14,30 @@ from .memory import SlidingWindowMemory
 # ─── 结果类型 ───────────────────────────────────────────────
 
 
+AgentStopReason = Literal["completed", "max_iterations", "model_error"]
+
+
+class TraceEvent(TypedDict):
+    type: str
+    iteration: int
+    thought: NotRequired[str]
+    tool: NotRequired[str]
+    arguments: NotRequired[dict[str, Any]]
+    observation: NotRequired[str]
+    error_code: NotRequired[str]
+    final_answer: NotRequired[str]
+    message: NotRequired[str]
+
+
 @dataclass
 class AgentResult:
     """Agent 执行结果"""
     content: str
-    trace: list[dict] = field(default_factory=list)
+    trace: list[TraceEvent] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     iterations: int = 0
+    stop_reason: AgentStopReason = "completed"
+    error: str | None = None
 
 
 # ─── Agent 配置 ──────────────────────────────────────────────
@@ -64,7 +81,7 @@ class Agent:
 
     def __init__(
         self,
-        llm: LLM,
+        llm: ChatModel,
         tools: list[Tool] | None = None,
         system_prompt: str | None = None,
         max_iterations: int = 10,
@@ -98,7 +115,7 @@ class Agent:
         """ReAct 循环主入口"""
         from .tools import ToolRegistry
 
-        trace: list[dict] = []
+        trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
 
         # 构建初始消息
@@ -126,6 +143,7 @@ class Agent:
                         obs = tool.execute(**tc.arguments)
 
                     trace.append({
+                        "type": "tool_call",
                         "iteration": iteration,
                         "thought": response.content or "",
                         "tool": tc.name,
@@ -160,6 +178,7 @@ class Agent:
                 content = response.content
                 clean_content = content.replace("[FINAL]", "").replace("Final Answer:", "").replace("最终答案：", "").replace("最终答案:", "").strip()
                 trace.append({
+                    "type": "final_answer",
                     "iteration": iteration,
                     "thought": content,
                     "final_answer": clean_content,
@@ -186,13 +205,14 @@ class Agent:
             trace=trace,
             usage=total_usage,
             iterations=self.max_iterations,
+            stop_reason="max_iterations",
         )
 
     def run_stream(self, user_input: str):
         """ReAct 循环流式版 — 逐事件 yield，供上层实时消费"""
         from .tools import ToolRegistry
 
-        trace: list[dict] = []
+        trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
         messages = [{"role": "system", "content": self.system_prompt}]
         messages.extend(self.memory.get_context())
@@ -260,6 +280,7 @@ class Agent:
                     yield {"type": "observation", "text": obs}
 
                     trace.append({
+                        "type": "tool_call",
                         "iteration": iteration,
                         "thought": thought,
                         "tool": tc_data["name"],
@@ -292,6 +313,7 @@ class Agent:
                 clean = thought.replace("[FINAL]", "").replace("Final Answer:", "").replace("最终答案：", "").replace("最终答案:", "").strip()
                 yield {"type": "final_answer", "text": clean}
                 trace.append({
+                    "type": "final_answer",
                     "iteration": iteration,
                     "thought": thought,
                     "final_answer": clean,
@@ -318,6 +340,7 @@ class Agent:
             "trace": trace,
             "usage": total_usage,
             "iterations": self.max_iterations,
+            "stop_reason": "max_iterations",
         }
 
     # ── 内部方法 ────────────────────────────────────────

@@ -1,11 +1,11 @@
-from .llm import LLM, LLMConfig, LLMResponse, StreamChunk
+from .llm import ChatModel, LLM, LLMConfig, LLMResponse, ModelRequestError, StreamChunk
 from .tools import tool, Tool, ToolRegistry
 from .memory import SlidingWindowMemory, LongTermMemory
-from .agent import Agent, AgentResult
+from .agent import Agent, AgentResult, AgentStopReason, TraceEvent
 
 __all__ = [
-    "LLM", "LLMConfig", "LLMResponse", "StreamChunk",
+    "ChatModel", "LLM", "LLMConfig", "LLMResponse", "ModelRequestError", "StreamChunk",
     "tool", "Tool", "ToolRegistry",
     "SlidingWindowMemory", "LongTermMemory",
-    "Agent", "AgentResult",
+    "Agent", "AgentResult", "AgentStopReason", "TraceEvent",
 ]

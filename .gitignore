@@ -11,6 +11,12 @@ venv/
 .venv/
 env/
 
+# Local Git worktrees
+.worktrees/
+
+# Local agent workflow state
+.superpowers/
+
 # Local configuration and secrets
 .env
 .env.*

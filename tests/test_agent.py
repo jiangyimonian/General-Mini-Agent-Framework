@@ -3,9 +3,10 @@
 from unittest.mock import Mock, patch
 import pytest
 
-from core.llm import LLMResponse, ToolCall
+from core.llm import LLMResponse, StreamChunk, ToolCall
 from core.tools import tool, ToolRegistry
 from core.agent import Agent, AgentResult
+from conftest import ScriptedChatModel
 
 
 def make_mock_llm(responses: list[LLMResponse]):
@@ -33,6 +34,17 @@ class TestAgentBasic:
 
         assert result.content == "你好！"
         assert result.iterations == 1
+
+    def test_accepts_scripted_chat_model_with_completed_result(self):
+        model = ScriptedChatModel([
+            LLMResponse(content="[FINAL] complete", tool_calls=None, usage={}),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("test")
+
+        assert result.content == "complete"
+        assert result.stop_reason == "completed"
+        assert result.error is None
 
     def test_single_tool_call(self):
         """Agent 调用一次工具后得出答案"""
@@ -65,6 +77,33 @@ class TestAgentBasic:
         assert len(result.trace) == 2
         assert result.trace[0]["tool"] == "add"
         assert result.trace[0]["observation"] == "8"
+
+    def test_tool_call_trace_entry_has_required_type(self):
+        @tool
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        mock_llm = make_mock_llm([
+            LLMResponse(
+                content="计算",
+                tool_calls=[ToolCall(id="call_1", name="add", arguments={"a": 1, "b": 2})],
+                usage={},
+            ),
+            LLMResponse(content="[FINAL] 3", tool_calls=None, usage={}),
+        ])
+
+        result = Agent(llm=mock_llm, tools=[add]).run("1+2=?")
+
+        assert result.trace[0]["type"] == "tool_call"
+
+    def test_final_trace_entry_has_required_type(self):
+        mock_llm = make_mock_llm([
+            LLMResponse(content="[FINAL] 完成", tool_calls=None, usage={}),
+        ])
+
+        result = Agent(llm=mock_llm, tools=[]).run("测试")
+
+        assert result.trace[0]["type"] == "final_answer"
 
     def test_multi_tool_call_chain(self):
         """Agent 连续调多个工具（链式推理）"""
@@ -130,6 +169,39 @@ class TestAgentBasic:
         result = agent.run("循环测试")
 
         assert "已达最大迭代次数" in result.content
+        assert result.stop_reason == "max_iterations"
+
+    def test_run_stream_trace_entries_have_required_types(self):
+        @tool
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        mock_llm = Mock()
+        mock_llm.chat_stream.side_effect = [
+            [StreamChunk(
+                tool_call_id="call_1",
+                tool_name="add",
+                tool_args='{"a": 1, "b": 2}',
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(content="[FINAL] 3", finish_reason="stop")],
+        ]
+
+        events = list(Agent(llm=mock_llm, tools=[add]).run_stream("1+2=?"))
+
+        assert [event["type"] for event in events[-1]["trace"]] == [
+            "tool_call",
+            "final_answer",
+        ]
+
+    def test_run_stream_max_iterations_done_event_has_stop_reason(self):
+        mock_llm = Mock()
+        mock_llm.chat_stream.return_value = []
+
+        events = list(Agent(llm=mock_llm, tools=[], max_iterations=2).run_stream("测试"))
+
+        assert events[-1]["type"] == "done"
+        assert events[-1]["stop_reason"] == "max_iterations"
 
     def test_empty_response(self):
         """LLM 返回空响应"""

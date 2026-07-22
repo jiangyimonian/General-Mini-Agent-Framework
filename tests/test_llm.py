@@ -1,8 +1,42 @@
 """测试 LLM 层（响应解析逻辑，不依赖真实 API）"""
 
 import json
+from unittest.mock import Mock
 import pytest
+import core.llm as llm_module
 from core.llm import LLM, LLMConfig, LLMResponse, ToolCall
+
+
+def test_model_request_error_sanitizes_authorization_values() -> None:
+    error = llm_module.ModelRequestError(
+        "request failed: Authorization: Bearer authorization-secret sk-live-secret",
+        status_code=401,
+        endpoint="/chat/completions",
+    )
+
+    assert error.status_code == 401
+    assert error.endpoint == "/chat/completions"
+    assert "authorization-secret" not in str(error)
+    assert "sk-live-secret" not in str(error)
+
+
+def test_llm_chat_accepts_tools_as_positional_argument() -> None:
+    llm = LLM(LLMConfig(api_key="test-key"))
+    response = Mock()
+    response.json.return_value = {
+        "choices": [{
+            "message": {"content": "ok", "role": "assistant"},
+            "finish_reason": "stop",
+        }],
+        "usage": {},
+        "model": "test-model",
+    }
+    llm._client = Mock()
+    llm._client.post.return_value = response
+
+    result = llm.chat([], [])
+
+    assert result.content == "ok"
 
 
 class TestLLMResponseParsing:

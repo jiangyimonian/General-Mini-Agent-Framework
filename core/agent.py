@@ -82,7 +82,7 @@ class Agent:
     def __init__(
         self,
         llm: ChatModel,
-        tools: list[Tool] | None = None,
+        tools: list[Tool | Callable[..., Any]] | None = None,
         system_prompt: str | None = None,
         max_iterations: int = 10,
         memory: SlidingWindowMemory | None = None,
@@ -92,15 +92,8 @@ class Agent:
         self.max_iterations = max_iterations
         self.memory = memory or SlidingWindowMemory()
 
-        # 注册工具
-        self.tools = tools or []
-        for t in self.tools:
-            if isinstance(t, Tool):
-                ToolRegistry.register(t.func, name=t.name, description=t.description)
-            elif callable(t):
-                # 兼容 @tool 装饰过的函数
-                name = getattr(t, '_tool_name', None) or t.__name__
-                ToolRegistry.register(t, name=name)
+        self.registry = ToolRegistry(tools or [])
+        self.tools = self.registry.list()
 
         # 系统提示词
         tool_descs = self._format_tool_descriptions()
@@ -113,8 +106,6 @@ class Agent:
 
     def run(self, user_input: str) -> AgentResult:
         """ReAct 循环主入口"""
-        from .tools import ToolRegistry
-
         trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
 
@@ -129,27 +120,26 @@ class Agent:
 
         # ── ReAct 循环 ────────────────────────────────
         for iteration in range(self.max_iterations):
-            response = self.llm.chat(messages, tools=ToolRegistry.schemas())
+            response = self.llm.chat(messages, tools=self.registry.schemas())
 
             self._accumulate_usage(total_usage, response.usage)
 
             # 情况 1：LLM 要求调用工具
             if response.tool_calls:
                 for tc in response.tool_calls:
-                    tool = ToolRegistry.get(tc.name)
-                    if not tool:
-                        obs = f"错误: 未找到工具 '{tc.name}'"
-                    else:
-                        obs = tool.execute(**tc.arguments)
-
-                    trace.append({
+                    execution = self.registry.execute(tc.name, tc.arguments)
+                    obs = execution.content
+                    trace_event: TraceEvent = {
                         "type": "tool_call",
                         "iteration": iteration,
                         "thought": response.content or "",
                         "tool": tc.name,
                         "arguments": tc.arguments,
                         "observation": obs,
-                    })
+                    }
+                    if execution.error_code is not None:
+                        trace_event["error_code"] = execution.error_code
+                    trace.append(trace_event)
 
                     self._call_hook("on_tool_call", trace[-1])
 
@@ -210,8 +200,6 @@ class Agent:
 
     def run_stream(self, user_input: str):
         """ReAct 循环流式版 — 逐事件 yield，供上层实时消费"""
-        from .tools import ToolRegistry
-
         trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
         messages = [{"role": "system", "content": self.system_prompt}]
@@ -226,7 +214,7 @@ class Agent:
             tool_calls_buffer: dict[int, dict] = {}  # index → 累积的 tool_call 片段
 
             for chunk in self.llm.chat_stream(
-                messages, tools=ToolRegistry.schemas()
+                messages, tools=self.registry.schemas()
             ):
                 if chunk.content:
                     thought_parts.append(chunk.content)
@@ -266,11 +254,8 @@ class Agent:
                     except (json.JSONDecodeError, KeyError):
                         arguments = {}
 
-                    tool = ToolRegistry.get(tc_data["name"])
-                    if not tool:
-                        obs = f"错误: 未找到工具 '{tc_data['name']}'"
-                    else:
-                        obs = tool.execute(**arguments)
+                    execution = self.registry.execute(tc_data["name"], arguments)
+                    obs = execution.content
 
                     yield {
                         "type": "tool_call",
@@ -279,14 +264,17 @@ class Agent:
                     }
                     yield {"type": "observation", "text": obs}
 
-                    trace.append({
+                    trace_event: TraceEvent = {
                         "type": "tool_call",
                         "iteration": iteration,
                         "thought": thought,
                         "tool": tc_data["name"],
                         "arguments": arguments,
                         "observation": obs,
-                    })
+                    }
+                    if execution.error_code is not None:
+                        trace_event["error_code"] = execution.error_code
+                    trace.append(trace_event)
                     self._call_hook("on_tool_call", trace[-1])
 
                     messages.append({

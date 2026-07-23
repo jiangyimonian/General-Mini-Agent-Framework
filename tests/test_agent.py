@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from core.llm import LLMResponse, StreamChunk, ToolCall
-from core.tools import tool, ToolRegistry
+from core.tools import tool
 from core.agent import Agent, AgentResult
 from conftest import ScriptedChatModel
 
@@ -17,9 +17,6 @@ def make_mock_llm(responses: list[LLMResponse]):
 
 
 class TestAgentBasic:
-    def setup_method(self):
-        ToolRegistry.clear()
-
     def test_direct_answer(self):
         """Agent 直接回答，不需要工具"""
         @tool
@@ -148,7 +145,8 @@ class TestAgentBasic:
         agent = Agent(llm=mock_llm, tools=[], max_iterations=5)
         result = agent.run("测试")
 
-        assert "未找到工具" in result.trace[0]["observation"]
+        assert "nonexistent" in result.trace[0]["observation"]
+        assert result.trace[0]["error_code"] == "unknown_tool"
         assert result.iterations == 2
 
     def test_max_iterations_exceeded(self):
@@ -235,9 +233,6 @@ class TestAgentBasic:
 
 
 class TestAgentHooks:
-    def setup_method(self):
-        ToolRegistry.clear()
-
     def test_on_tool_call_hook(self):
         """hooks.on_tool_call 应被调用"""
         @tool
@@ -276,3 +271,103 @@ class TestAgentHooks:
 
         assert len(hook_data) == 1
         assert hook_data[0]["final_answer"] == "完成"
+
+
+class TestAgentToolIsolation:
+    def test_agents_send_only_their_own_tool_schemas(self):
+        @tool
+        def first_only() -> str:
+            return "first"
+
+        @tool
+        def second_only() -> str:
+            return "second"
+
+        first_model = ScriptedChatModel([
+            LLMResponse(content="[FINAL] first", tool_calls=None, usage={}),
+        ])
+        second_model = ScriptedChatModel([
+            LLMResponse(content="[FINAL] second", tool_calls=None, usage={}),
+        ])
+        first_agent = Agent(llm=first_model, tools=[first_only])
+        second_agent = Agent(llm=second_model, tools=[second_only])
+
+        first_agent.run("one")
+        second_agent.run("two")
+
+        first_names = [
+            schema["function"]["name"] for schema in first_model.calls[0][1]
+        ]
+        second_names = [
+            schema["function"]["name"] for schema in second_model.calls[0][1]
+        ]
+        assert first_names == ["first_only"]
+        assert second_names == ["second_only"]
+
+    def test_agent_cannot_execute_tool_owned_by_another_agent(self):
+        calls = 0
+
+        def private_tool() -> str:
+            nonlocal calls
+            calls += 1
+            return "private result"
+
+        owner = Agent(
+            llm=ScriptedChatModel([
+                LLMResponse(content="[FINAL] owner", tool_calls=None, usage={}),
+            ]),
+            tools=[private_tool],
+        )
+        outsider_model = ScriptedChatModel([
+            LLMResponse(
+                content="try private",
+                tool_calls=[ToolCall(id="call_1", name="private_tool", arguments={})],
+                usage={},
+            ),
+            LLMResponse(content="[FINAL] done", tool_calls=None, usage={}),
+        ])
+        outsider = Agent(llm=outsider_model, tools=[])
+
+        owner.run("owner")
+        result = outsider.run("outsider")
+
+        assert calls == 0
+        assert result.trace[0]["error_code"] == "unknown_tool"
+
+    def test_streaming_agents_expose_only_local_tools_and_reject_leaked_tools(self):
+        @tool
+        def first_only() -> str:
+            return "first"
+
+        @tool
+        def second_only() -> str:
+            return "second"
+
+        first_model = Mock()
+        first_model.chat_stream.side_effect = [
+            [StreamChunk(content="[FINAL] first", finish_reason="stop")],
+        ]
+        second_model = Mock()
+        second_model.chat_stream.side_effect = [
+            [StreamChunk(
+                tool_call_id="call_1",
+                tool_name="first_only",
+                tool_args="{}",
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(content="[FINAL] second", finish_reason="stop")],
+        ]
+
+        first_agent = Agent(llm=first_model, tools=[first_only])
+        second_agent = Agent(llm=second_model, tools=[second_only])
+
+        first_events = list(first_agent.run_stream("one"))
+        second_events = list(second_agent.run_stream("two"))
+
+        first_schemas = first_model.chat_stream.call_args_list[0].kwargs["tools"]
+        second_schemas = second_model.chat_stream.call_args_list[0].kwargs["tools"]
+        assert [schema["function"]["name"] for schema in first_schemas] == ["first_only"]
+        assert [schema["function"]["name"] for schema in second_schemas] == ["second_only"]
+        assert "first_only" not in [schema["function"]["name"] for schema in second_schemas]
+        assert second_events[-1]["trace"][0]["error_code"] == "unknown_tool"
+        assert first_events[-1]["content"] == "first"

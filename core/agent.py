@@ -6,9 +6,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, NotRequired, TypedDict
 
-from .llm import ChatModel
+from .llm import ChatModel, ModelRequestError
 from .tools import Tool, ToolRegistry
-from .memory import SlidingWindowMemory
 
 
 # ─── 结果类型 ───────────────────────────────────────────────
@@ -85,12 +84,12 @@ class Agent:
         tools: list[Tool | Callable[..., Any]] | None = None,
         system_prompt: str | None = None,
         max_iterations: int = 10,
-        memory: SlidingWindowMemory | None = None,
+        memory: Any | None = None,
         hooks: dict[str, Callable] | None = None,
     ):
         self.llm = llm
         self.max_iterations = max_iterations
-        self.memory = memory or SlidingWindowMemory()
+        self.memory = memory
 
         self.registry = ToolRegistry(tools or [])
         self.tools = self.registry.list()
@@ -113,14 +112,29 @@ class Agent:
         messages = [{"role": "system", "content": self.system_prompt}]
 
         # 加载短期记忆
-        messages.extend(self.memory.get_context())
+        messages.extend(self._memory_context())
 
         # 加入用户输入
         messages.append({"role": "user", "content": user_input})
 
         # ── ReAct 循环 ────────────────────────────────
         for iteration in range(self.max_iterations):
-            response = self.llm.chat(messages, tools=self.registry.schemas())
+            try:
+                response = self.llm.chat(messages, tools=self.registry.schemas())
+            except ModelRequestError:
+                trace.append({
+                    "type": "model_error",
+                    "iteration": iteration,
+                    "message": "model request failed",
+                })
+                return AgentResult(
+                    content="",
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration,
+                    stop_reason="model_error",
+                    error="model request failed",
+                )
 
             self._accumulate_usage(total_usage, response.usage)
 
@@ -168,7 +182,7 @@ class Agent:
                 content = response.content
                 clean_content = content.replace("[FINAL]", "").replace("Final Answer:", "").replace("最终答案：", "").replace("最终答案:", "").strip()
                 trace.append({
-                    "type": "final_answer",
+                    "type": "final",
                     "iteration": iteration,
                     "thought": content,
                     "final_answer": clean_content,
@@ -190,6 +204,11 @@ class Agent:
                 continue
 
         # 超时返回
+        trace.append({
+            "type": "max_iterations",
+            "iteration": self.max_iterations,
+            "message": "maximum iterations reached",
+        })
         return AgentResult(
             content="（已达最大迭代次数，未能得出最终答案）",
             trace=trace,
@@ -203,7 +222,7 @@ class Agent:
         trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
         messages = [{"role": "system", "content": self.system_prompt}]
-        messages.extend(self.memory.get_context())
+        messages.extend(self._memory_context())
         messages.append({"role": "user", "content": user_input})
 
         for iteration in range(self.max_iterations):
@@ -347,6 +366,12 @@ class Agent:
                 # 兼容原始函数（有 name 属性）
                 lines.append(f"- {getattr(t, '__name__', str(t))}(...): 可用工具")
         return "\n".join(lines)
+
+    def _memory_context(self) -> list[dict[str, Any]]:
+        get_context = getattr(self.memory, "get_context", None)
+        if callable(get_context):
+            return get_context()
+        return []
 
     def _accumulate_usage(self, total: dict, current: dict) -> None:
         for key, val in current.items():

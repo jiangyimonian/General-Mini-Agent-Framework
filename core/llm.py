@@ -18,7 +18,7 @@ class ChatModel(Protocol):
         messages: list[dict[str, Any]],
         *,
         tools: list[dict[str, Any]] | None = None,
-    ) -> "LLMResponse": ...
+    ) -> LLMResponse: ...
 
 
 class ModelRequestError(RuntimeError):
@@ -128,20 +128,25 @@ class LLM:
                 data = resp.json()
                 return self._parse_response(data)
 
-            except httpx.HTTPStatusError as e:
-                last_error = e
-                if e.response.status_code in (429, 502, 503, 504):
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code in (429, 502, 503, 504):
                     self._sleep(attempt)
                     continue
-                raise
-            except (httpx.TimeoutException, httpx.ConnectError) as e:
-                last_error = e
+                raise ModelRequestError(
+                    "model request returned an HTTP error",
+                    status_code=exc.response.status_code,
+                    endpoint="/chat/completions",
+                ) from exc
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                last_error = exc
                 self._sleep(attempt)
                 continue
 
-        raise RuntimeError(
-            f"LLM 调用失败（已重试 {self.config.max_retries} 次）: {last_error}",
-        )
+        raise ModelRequestError(
+            "model request failed after retries",
+            endpoint="/chat/completions",
+        ) from last_error
 
     def chat_stream(
         self,
@@ -159,23 +164,63 @@ class LLM:
         if tools:
             body["tools"] = tools
 
-        with self._client.stream("POST", "/chat/completions", json=body) as resp:
-            resp.raise_for_status()
-            # 流式解析 SSE
-            for line in resp.iter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                data_str = line[6:]  # 去掉 "data: " 前缀
-                if data_str == "[DONE]":
-                    break
-                try:
-                    data = json.loads(data_str)
-                except json.JSONDecodeError:
-                    continue
+        last_error: Exception | None = None
+        for attempt in range(self.config.max_retries):
+            yielded_chunk = False
+            try:
+                with self._client.stream("POST", "/chat/completions", json=body) as resp:
+                    resp.raise_for_status()
+                    # 流式解析 SSE
+                    for line in resp.iter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data_str = line[6:]  # 去掉 "data: " 前缀
+                        if data_str == "[DONE]":
+                            break
+                        try:
+                            data = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
 
-                chunk = self._parse_stream_chunk(data)
-                if chunk is not None:
-                    yield chunk
+                        chunk = self._parse_stream_chunk(data)
+                        if chunk is not None:
+                            yielded_chunk = True
+                            yield chunk
+                return
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if not yielded_chunk and exc.response.status_code in (429, 502, 503, 504):
+                    self._sleep(attempt)
+                    continue
+                if yielded_chunk:
+                    raise ModelRequestError(
+                        "model streaming request failed",
+                        endpoint="/chat/completions",
+                    ) from exc
+                raise ModelRequestError(
+                    "model request returned an HTTP error",
+                    status_code=exc.response.status_code,
+                    endpoint="/chat/completions",
+                ) from exc
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                last_error = exc
+                if yielded_chunk:
+                    raise ModelRequestError(
+                        "model streaming request failed",
+                        endpoint="/chat/completions",
+                    ) from exc
+                self._sleep(attempt)
+                continue
+            except httpx.HTTPError as exc:
+                raise ModelRequestError(
+                    "model streaming request failed",
+                    endpoint="/chat/completions",
+                ) from exc
+
+        raise ModelRequestError(
+            "model request failed after retries",
+            endpoint="/chat/completions",
+        ) from last_error
 
     # ── 内部方法 ────────────────────────────────────────
 

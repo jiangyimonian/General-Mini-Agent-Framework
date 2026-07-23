@@ -1,7 +1,6 @@
 """Tests for local tool registration, schemas, and execution."""
 
 import pytest
-from typing import Optional
 
 from core.tools import ToolRegistry, tool
 
@@ -33,7 +32,10 @@ class TestToolRegistration:
         assert second_tool.parameters["properties"]["a"]["type"] == "integer"
         assert second_schema["function"]["parameters"]["properties"]["a"]["type"] == "integer"
         assert second_schema["function"]["parameters"]["properties"]["b"]["type"] == "integer"
-        assert first_registry.schemas()[0]["function"]["parameters"]["properties"]["b"]["type"] == "integer"
+        first_schema_after_second_registry = first_registry.schemas()[0]
+        first_parameters = first_schema_after_second_registry["function"]["parameters"]
+        first_properties = first_parameters["properties"]
+        assert first_properties["b"]["type"] == "integer"
 
     def test_schema_contains_parameter_types(self):
         def configure(name: str, count: int, ratio: float, enabled: bool) -> str:
@@ -75,7 +77,7 @@ class TestToolRegistration:
         assert parameters["properties"]["b"]["description"] == "Second integer."
 
     def test_optional_parameter_is_nullable_and_not_required(self):
-        def greet(name: Optional[str] = None) -> str:
+        def greet(name: str | None = None) -> str:
             return name or "hello"
 
         parameters = ToolRegistry([greet]).schemas()[0]["function"]["parameters"]

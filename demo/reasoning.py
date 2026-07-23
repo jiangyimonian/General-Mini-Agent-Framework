@@ -18,10 +18,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # 加载 .env 文件
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.llm import LLM, LLMConfig
-from core.tools import tool
-from core.agent import Agent
-
+from core.agent import Agent  # noqa: E402
+from core.llm import LLM, LLMConfig  # noqa: E402
+from core.tools import tool  # noqa: E402
 
 # ─── 工具定义 ────────────────────────────────────────────────
 

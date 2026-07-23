@@ -16,10 +16,9 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.llm import LLM, LLMConfig
-from core.tools import tool
-from core.agent import Agent
-
+from core.agent import Agent  # noqa: E402
+from core.llm import LLM, LLMConfig  # noqa: E402
+from core.tools import tool  # noqa: E402
 
 # ─── 工具定义 ────────────────────────────────────────────────
 
@@ -115,7 +114,10 @@ def main():
             elapsed = time.time() - start_time
             usage = event.get("usage", {})
             print(f"\n\n{C['dim']}══════════════════════{C['reset']}")
-            print(f"{C['dim']}📊 {event['iterations']} 轮迭代  │  ⏱ {elapsed:.1f}s  │  Token: {usage.get('total_tokens', 0)}{C['reset']}")
+            print(
+                f"{C['dim']}📊 {event['iterations']} 轮迭代  │  ⏱ {elapsed:.1f}s  │  "
+                f"Token: {usage.get('total_tokens', 0)}{C['reset']}"
+            )
 
 
 if __name__ == "__main__":

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from .llm import ChatModel, ModelRequestError
 from .tools import Tool, ToolRegistry
-
 
 # ─── 结果类型 ───────────────────────────────────────────────
 
@@ -180,7 +180,13 @@ class Agent:
             # 情况 2：文本回复（无 tool call）→ 最终答案，直接结束
             if response.content and not response.tool_calls:
                 content = response.content
-                clean_content = content.replace("[FINAL]", "").replace("Final Answer:", "").replace("最终答案：", "").replace("最终答案:", "").strip()
+                clean_content = (
+                    content.replace("[FINAL]", "")
+                    .replace("Final Answer:", "")
+                    .replace("最终答案：", "")
+                    .replace("最终答案:", "")
+                    .strip()
+                )
                 trace.append({
                     "type": "final",
                     "iteration": iteration,
@@ -317,7 +323,13 @@ class Agent:
 
             # 情况 2：文本回复（无 tool call）→ 最终答案，直接结束
             if thought:
-                clean = thought.replace("[FINAL]", "").replace("Final Answer:", "").replace("最终答案：", "").replace("最终答案:", "").strip()
+                clean = (
+                    thought.replace("[FINAL]", "")
+                    .replace("Final Answer:", "")
+                    .replace("最终答案：", "")
+                    .replace("最终答案:", "")
+                    .strip()
+                )
                 yield {"type": "final_answer", "text": clean}
                 trace.append({
                     "type": "final_answer",

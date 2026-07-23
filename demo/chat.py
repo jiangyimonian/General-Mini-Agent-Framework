@@ -23,11 +23,10 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.llm import LLM, LLMConfig
-from core.tools import tool
-from core.agent import Agent
-from core.trace import export_trace
-
+from core.agent import Agent  # noqa: E402
+from core.llm import LLM, LLMConfig  # noqa: E402
+from core.tools import tool  # noqa: E402
+from core.trace import export_trace  # noqa: E402
 
 # ─── 工具 ──────────────────────────────────────────────────
 
@@ -44,7 +43,10 @@ def calculate(expression: str) -> float:
 def get_date() -> str:
     now = datetime.now()
     weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-    return f"{now.year}年{now.month}月{now.day}日 {weekdays[now.weekday()]} {now.hour:02d}:{now.minute:02d}:{now.second:02d}"
+    return (
+        f"{now.year}年{now.month}月{now.day}日 {weekdays[now.weekday()]} "
+        f"{now.hour:02d}:{now.minute:02d}:{now.second:02d}"
+    )
 
 
 @tool(description="查询常识知识，如物理常数、地理信息等")
@@ -124,7 +126,10 @@ def main():
                     print(f"  {C['bold']}✅ {step['final_answer'][:200]}{C['reset']}")
                 else:
                     print(f"  {C['cyan']}💭{C['reset']} {step.get('thought', '')[:100]}")
-                    print(f"  {C['yellow']}🔧{C['reset']} {step['tool']}({step.get('arguments', {})})")
+                    print(
+                        f"  {C['yellow']}🔧{C['reset']} "
+                        f"{step['tool']}({step.get('arguments', {})})"
+                    )
                     print(f"  {C['green']}📤{C['reset']} {step['observation'][:200]}")
             print()
             continue
@@ -190,7 +195,10 @@ def main():
                 for r, acts in sorted(rounds_seen.items()):
                     print(f"  {C['dim']}第{r}轮: {' → '.join(acts)}{C['reset']}")
 
-                print(f"  {C['dim']}总计: {event['iterations']} 轮 · {elapsed:.1f}s · {usage.get('total_tokens', 0)} tokens{C['reset']}")
+                print(
+                    f"  {C['dim']}总计: {event['iterations']} 轮 · {elapsed:.1f}s · "
+                    f"{usage.get('total_tokens', 0)} tokens{C['reset']}"
+                )
                 last_result = type("Result", (), {
                     "trace": trace,
                     "content": event["content"],

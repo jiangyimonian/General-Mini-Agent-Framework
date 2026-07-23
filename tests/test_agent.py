@@ -1,12 +1,12 @@
 """测试 Agent ReAct 循环"""
 
-from unittest.mock import Mock, patch
-import pytest
+from unittest.mock import Mock
 
+from conftest import ScriptedChatModel
+
+from core.agent import Agent
 from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall
 from core.tools import Tool, tool
-from core.agent import Agent, AgentResult
-from conftest import ScriptedChatModel
 
 
 def make_mock_llm(responses: list[LLMResponse]):

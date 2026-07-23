@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from .agent import Agent
-
 
 # ─── 角色定义 ────────────────────────────────────────────────
 
@@ -128,8 +126,6 @@ class Debate:
 
         for round_num in range(self.config.max_rounds):
             round_record = {"round": round_num, "responses": []}
-            has_converged = False
-
             for role in self.config.roles:
                 context = self._build_context_for_role(role)
                 result = role.agent.run(context)

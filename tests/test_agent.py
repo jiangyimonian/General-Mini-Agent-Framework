@@ -2,11 +2,82 @@
 
 from unittest.mock import Mock
 
-from conftest import ScriptedChatModel
+import pytest
+from conftest import ScriptedChatModel, ScriptedStreamingChatModel
 
 from core.agent import Agent
 from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall
 from core.tools import Tool, tool
+
+
+@pytest.mark.parametrize(
+    "finish_reason",
+    ["length", "content_filter", "future_reason", ""],
+)
+def test_run_stream_maps_non_terminal_finishes_to_incomplete(
+    finish_reason: str,
+) -> None:
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="partial", finish_reason=finish_reason)]],
+    )
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "thought_chunk",
+        "done",
+    ]
+    assert events[-1]["stop_reason"] == "incomplete"
+    assert events[-1]["content"] == "partial"
+    assert events[-1]["finish_reason"] == finish_reason
+
+
+def test_run_stream_completed_event_keys_and_order() -> None:
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="answer", finish_reason="stop")]],
+    )
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "thought_chunk",
+        "final_answer",
+        "done",
+    ]
+    assert events[1] == {
+        "type": "thought_chunk",
+        "iteration": 0,
+        "text": "answer",
+    }
+    assert events[-1]["stop_reason"] == "completed"
+    assert events[-1]["iterations"] == 1
+    assert sum(event["type"] == "done" for event in events) == 1
+
+
+def test_run_stream_converts_model_error_to_terminal_events() -> None:
+    error = ModelRequestError(
+        "invalid model stream sk-secret",
+        status_code=502,
+        error_code="stream_protocol_error",
+    )
+    model = ScriptedStreamingChatModel([], [error])
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "model_error",
+        "done",
+    ]
+    assert events[1]["error_code"] == "stream_protocol_error"
+    assert events[1]["status_code"] == 502
+    assert "sk-secret" not in str(events)
+    assert events[-1]["stop_reason"] == "model_error"
+    assert sum(event["type"] == "done" for event in events) == 1
 
 
 def make_mock_llm(responses: list[LLMResponse]):
@@ -200,10 +271,29 @@ class TestAgentBasic:
         ]
 
     def test_run_stream_max_iterations_done_event_has_stop_reason(self):
-        mock_llm = Mock()
-        mock_llm.chat_stream.return_value = []
+        @tool
+        def keep_going() -> str:
+            return "continue"
 
-        events = list(Agent(llm=mock_llm, tools=[], max_iterations=2).run_stream("测试"))
+        mock_llm = Mock()
+        mock_llm.chat_stream.side_effect = [
+            [StreamChunk(
+                tool_call_id="call_1",
+                tool_name="keep_going",
+                tool_args="{}",
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(
+                tool_call_id="call_2",
+                tool_name="keep_going",
+                tool_args="{}",
+                finish_reason="tool_calls",
+            )],
+        ]
+
+        events = list(
+            Agent(llm=mock_llm, tools=[keep_going], max_iterations=2).run_stream("测试")
+        )
 
         assert events[-1]["type"] == "done"
         assert events[-1]["stop_reason"] == "max_iterations"

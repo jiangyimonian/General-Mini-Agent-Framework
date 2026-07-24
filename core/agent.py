@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, NotRequired, TypedDict
 
@@ -13,7 +13,7 @@ from .tools import Tool, ToolRegistry
 # ─── 结果类型 ───────────────────────────────────────────────
 
 
-AgentStopReason = Literal["completed", "max_iterations", "model_error"]
+AgentStopReason = Literal["completed", "max_iterations", "model_error", "incomplete"]
 
 
 class TraceEvent(TypedDict):
@@ -26,6 +26,75 @@ class TraceEvent(TypedDict):
     error_code: NotRequired[str]
     final_answer: NotRequired[str]
     message: NotRequired[str]
+    finish_reason: NotRequired[str]
+
+
+class IterationStartEvent(TypedDict):
+    type: Literal["iteration_start"]
+    iteration: int
+
+
+class ThoughtChunkEvent(TypedDict):
+    type: Literal["thought_chunk"]
+    iteration: int
+    text: str
+
+
+class ToolCallEvent(TypedDict):
+    type: Literal["tool_call"]
+    iteration: int
+    index: int
+    id: str
+    name: str
+    arguments: dict[str, Any] | None
+    raw_arguments: str
+    error_code: NotRequired[str]
+
+
+class ObservationEvent(TypedDict):
+    type: Literal["observation"]
+    iteration: int
+    index: int
+    tool_call_id: str
+    name: str
+    text: str
+    error_code: NotRequired[str]
+
+
+class FinalAnswerEvent(TypedDict):
+    type: Literal["final_answer"]
+    iteration: int
+    text: str
+
+
+class ModelErrorEvent(TypedDict):
+    type: Literal["model_error"]
+    iteration: int
+    error_code: str
+    error: str
+    status_code: NotRequired[int]
+
+
+class DoneEvent(TypedDict):
+    type: Literal["done"]
+    content: str
+    trace: list[TraceEvent]
+    usage: dict[str, int]
+    iterations: int
+    stop_reason: AgentStopReason
+    finish_reason: NotRequired[str]
+    error: NotRequired[str]
+
+
+StreamEvent = (
+    IterationStartEvent
+    | ThoughtChunkEvent
+    | ToolCallEvent
+    | ObservationEvent
+    | FinalAnswerEvent
+    | ModelErrorEvent
+    | DoneEvent
+)
 
 
 @dataclass
@@ -223,7 +292,7 @@ class Agent:
             stop_reason="max_iterations",
         )
 
-    def run_stream(self, user_input: str):
+    def run_stream(self, user_input: str) -> Iterator[StreamEvent]:
         """ReAct 循环流式版 — 逐事件 yield，供上层实时消费"""
         trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
@@ -234,60 +303,101 @@ class Agent:
         for iteration in range(self.max_iterations):
             yield {"type": "iteration_start", "iteration": iteration}
 
-            # 流式累积
             thought_parts: list[str] = []
-            tool_calls_buffer: dict[int, dict] = {}  # index → 累积的 tool_call 片段
+            tool_calls_buffer: dict[int, dict[str, Any]] = {}
+            finish_reason = ""
 
-            for chunk in self.llm.chat_stream(
-                messages, tools=self.registry.schemas()
-            ):
-                if chunk.content:
-                    thought_parts.append(chunk.content)
-                    yield {"type": "thought_chunk", "text": chunk.content}
-
-                # 初始化 tool call 缓冲区
-                if chunk.tool_call_id:
-                    idx = 0  # 简化：同一轮只有一个 tool call
-                    if idx not in tool_calls_buffer:
-                        tool_calls_buffer[idx] = {
-                            "id": chunk.tool_call_id,
-                            "name": chunk.tool_name,
-                            "arguments": "",
+            try:
+                for chunk in self.llm.chat_stream(
+                    messages, tools=self.registry.schemas()
+                ):
+                    if chunk.content:
+                        thought_parts.append(chunk.content)
+                        yield {
+                            "type": "thought_chunk",
+                            "iteration": iteration,
+                            "text": chunk.content,
                         }
-                # 补充 name 和 arguments（可能来自后续 chunk）
-                if chunk.tool_call_id or chunk.tool_args:
-                    if 0 in tool_calls_buffer:
+
+                    if chunk.tool_call_id:
+                        tool_calls_buffer.setdefault(
+                            0,
+                            {
+                                "id": chunk.tool_call_id,
+                                "name": chunk.tool_name,
+                                "arguments": "",
+                            },
+                        )
+                    if (chunk.tool_call_id or chunk.tool_args) and 0 in tool_calls_buffer:
                         if chunk.tool_name:
                             tool_calls_buffer[0]["name"] = chunk.tool_name
                         tool_calls_buffer[0]["arguments"] += chunk.tool_args
 
-                if chunk.usage:
-                    self._accumulate_usage(total_usage, chunk.usage)
-
-                if chunk.finish_reason == "stop":
-                    break
-                elif chunk.finish_reason == "tool_calls":
-                    break
+                    if chunk.usage:
+                        self._accumulate_usage(total_usage, chunk.usage)
+                    if chunk.finish_reason:
+                        finish_reason = chunk.finish_reason
+            except ModelRequestError as exc:
+                error = str(exc)
+                trace.append({
+                    "type": "model_error",
+                    "iteration": iteration,
+                    "error_code": exc.error_code,
+                    "message": error,
+                })
+                model_error: ModelErrorEvent = {
+                    "type": "model_error",
+                    "iteration": iteration,
+                    "error_code": exc.error_code,
+                    "error": error,
+                }
+                if exc.status_code is not None:
+                    model_error["status_code"] = exc.status_code
+                yield model_error
+                yield self._done_event(
+                    content="",
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration + 1,
+                    stop_reason="model_error",
+                    error=error,
+                )
+                return
 
             thought = "".join(thought_parts)
 
-            # 情况 1：有工具调用
             if tool_calls_buffer:
-                for tc_data in tool_calls_buffer.values():
+                for index, tc_data in tool_calls_buffer.items():
+                    raw_arguments = tc_data["arguments"]
                     try:
-                        arguments = json.loads(tc_data["arguments"])
+                        arguments = json.loads(raw_arguments)
                     except (json.JSONDecodeError, KeyError):
                         arguments = {}
 
                     execution = self.registry.execute(tc_data["name"], arguments)
                     obs = execution.content
-
-                    yield {
+                    tool_event: ToolCallEvent = {
                         "type": "tool_call",
+                        "iteration": iteration,
+                        "index": index,
+                        "id": tc_data["id"],
                         "name": tc_data["name"],
                         "arguments": arguments,
+                        "raw_arguments": raw_arguments,
                     }
-                    yield {"type": "observation", "text": obs}
+                    observation_event: ObservationEvent = {
+                        "type": "observation",
+                        "iteration": iteration,
+                        "index": index,
+                        "tool_call_id": tc_data["id"],
+                        "name": tc_data["name"],
+                        "text": obs,
+                    }
+                    if execution.error_code is not None:
+                        tool_event["error_code"] = execution.error_code
+                        observation_event["error_code"] = execution.error_code
+                    yield tool_event
+                    yield observation_event
 
                     trace_event: TraceEvent = {
                         "type": "tool_call",
@@ -321,8 +431,7 @@ class Agent:
                     })
                 continue
 
-            # 情况 2：文本回复（无 tool call）→ 最终答案，直接结束
-            if thought:
+            if finish_reason == "stop":
                 clean = (
                     thought.replace("[FINAL]", "")
                     .replace("Final Answer:", "")
@@ -330,7 +439,11 @@ class Agent:
                     .replace("最终答案:", "")
                     .strip()
                 )
-                yield {"type": "final_answer", "text": clean}
+                yield {
+                    "type": "final_answer",
+                    "iteration": iteration,
+                    "text": clean,
+                }
                 trace.append({
                     "type": "final_answer",
                     "iteration": iteration,
@@ -338,31 +451,66 @@ class Agent:
                     "final_answer": clean,
                 })
                 self._call_hook("on_final", trace[-1])
-                yield {
-                    "type": "done",
-                    "content": clean,
-                    "trace": trace,
-                    "usage": total_usage,
-                    "iterations": iteration + 1,
-                }
+                yield self._done_event(
+                    content=clean,
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration + 1,
+                    stop_reason="completed",
+                    finish_reason=finish_reason,
+                )
                 return
 
-            if not thought:
-                messages.append({
-                    "role": "assistant",
-                    "content": "（空响应，请继续）",
-                })
+            trace.append({
+                "type": "incomplete",
+                "iteration": iteration,
+                "thought": thought,
+                "finish_reason": finish_reason,
+            })
+            yield self._done_event(
+                content=thought,
+                trace=trace,
+                usage=total_usage,
+                iterations=iteration + 1,
+                stop_reason="incomplete",
+                finish_reason=finish_reason,
+            )
+            return
 
-        yield {
-            "type": "done",
-            "content": "（已达最大迭代次数，未能得出最终答案）",
-            "trace": trace,
-            "usage": total_usage,
-            "iterations": self.max_iterations,
-            "stop_reason": "max_iterations",
-        }
+        yield self._done_event(
+            content="（已达最大迭代次数，未能得出最终答案）",
+            trace=trace,
+            usage=total_usage,
+            iterations=self.max_iterations,
+            stop_reason="max_iterations",
+        )
 
     # ── 内部方法 ────────────────────────────────────────
+
+    @staticmethod
+    def _done_event(
+        *,
+        content: str,
+        trace: list[TraceEvent],
+        usage: dict[str, int],
+        iterations: int,
+        stop_reason: AgentStopReason,
+        finish_reason: str | None = None,
+        error: str | None = None,
+    ) -> DoneEvent:
+        event: DoneEvent = {
+            "type": "done",
+            "content": content,
+            "trace": trace,
+            "usage": usage,
+            "iterations": iterations,
+            "stop_reason": stop_reason,
+        }
+        if finish_reason is not None:
+            event["finish_reason"] = finish_reason
+        if error is not None:
+            event["error"] = error
+        return event
 
     def _format_tool_descriptions(self) -> str:
         """生成工具描述文本（嵌入 system prompt）"""

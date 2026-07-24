@@ -425,7 +425,7 @@ Run `git diff --check` and report parser behavior plus retry counts. Suggested c
 - Consumes: `StreamingChatModel`, `StreamChunk`, and classified `ModelRequestError` from Tasks 1-2.
 - Produces: exported `StreamEvent`, seven literal event shapes, and deterministic `done.stop_reason` values.
 
-- [ ] **Step 1: Add a reusable scripted streaming model**
+- [x] **Step 1: Add a reusable scripted streaming model**
 
 Extend `tests/conftest.py` with a model that records deep-copied calls and can return chunks or raise an exception per request:
 
@@ -454,7 +454,7 @@ class ScriptedStreamingChatModel(ScriptedChatModel):
 
 Import `StreamChunk` in the fixture module.
 
-- [ ] **Step 2: Write failing event and terminal-flow tests**
+- [x] **Step 2: Write failing event and terminal-flow tests**
 
 Add table-driven assertions for the four terminal categories:
 
@@ -523,7 +523,7 @@ def test_run_stream_converts_model_error_to_terminal_events() -> None:
 
 Also assert exactly one `done` for completed, incomplete, model-error, and max-iteration flows, and assert `on_final` is called only for `stop`.
 
-- [ ] **Step 3: Run terminal tests to verify RED**
+- [x] **Step 3: Run terminal tests to verify RED**
 
 Run:
 
@@ -533,7 +533,7 @@ python -m pytest tests/test_agent.py -k "run_stream and (completed or incomplete
 
 Expected: failures show missing `iteration`, missing stop reasons, uncaught model errors, and incorrect final handling.
 
-- [ ] **Step 4: Define strict event types**
+- [x] **Step 4: Define strict event types**
 
 In `core/agent.py`, define dedicated `TypedDict` classes with literal `type` values. Use `NotRequired` only for the documented optional keys:
 
@@ -613,7 +613,7 @@ Export `StreamEvent` from `core/__init__.py` and annotate `run_stream()` as
 `Iterator[StreamEvent]`. Task 4 fills the already-defined tool event shapes without changing the
 public type union.
 
-- [ ] **Step 5: Implement deterministic non-tool terminal flow**
+- [x] **Step 5: Implement deterministic non-tool terminal flow**
 
 Track the latest non-empty `finish_reason` for each request. Do not break the Agent chunk loop when
 that reason appears: continue consuming until `LLM.chat_stream()` ends so a usage-only chunk after
@@ -703,7 +703,7 @@ def _done_event(
 
 Keep the existing tool branch operational through its legacy fields until Task 4 performs the indexed migration.
 
-- [ ] **Step 6: Run focused and full regression tests**
+- [x] **Step 6: Run focused and full regression tests**
 
 Run:
 
@@ -714,7 +714,7 @@ python -m pytest tests -v
 
 Expected: all tests pass and every non-cancelled tested path contains exactly one final `done` event.
 
-- [ ] **Step 7: Stop for review**
+- [x] **Step 7: Stop for review**
 
 Run `git diff --check` and report each terminal sequence. Suggested commit message after approval: `feat: stabilize streaming agent events`.
 

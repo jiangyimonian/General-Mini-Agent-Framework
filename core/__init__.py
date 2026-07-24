@@ -1,4 +1,4 @@
-from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, TraceEvent
+from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, StreamEvent, TraceEvent
 from .llm import (
     LLM,
     ChatModel,
@@ -31,6 +31,7 @@ __all__ = [
     "AgentConfig",
     "AgentResult",
     "AgentStopReason",
+    "StreamEvent",
     "TraceEvent",
     "SlidingWindowMemory",
     "LongTermMemory",

@@ -5,6 +5,8 @@ General Mini Agent Framework 多 Agent 协作示例。
   DEEPSEEK_API_KEY=your_api_key_here
 """
 
+# Experimental example: not covered by the 0.1.0 stable API.
+
 from __future__ import annotations
 
 import os

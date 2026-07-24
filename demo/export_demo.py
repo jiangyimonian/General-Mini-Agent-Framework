@@ -6,6 +6,8 @@ General Mini Agent Framework HTML 轨迹导出示例。
     python demo/export_demo.py debate   → 生成 output/debate.html
 """
 
+# Experimental example: not covered by the 0.1.0 stable API.
+
 from __future__ import annotations
 
 import os

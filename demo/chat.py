@@ -11,6 +11,8 @@ General Mini Agent Framework 交互式终端。
     /exit    退出
 """
 
+# Experimental example: not covered by the 0.1.0 stable API.
+
 from __future__ import annotations
 
 import os

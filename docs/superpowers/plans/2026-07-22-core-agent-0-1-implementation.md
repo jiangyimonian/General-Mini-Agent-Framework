@@ -670,7 +670,7 @@ git commit -m "build: add package metadata and CI"
 - Consumes: the stable API and commands from Tasks 1-4.
 - Produces: documentation and examples whose published claims match `0.1.0`, while retaining non-core code behind explicit experimental labels.
 
-- [ ] **Step 1: Add failing documentation-contract tests**
+- [x] **Step 1: Add failing documentation-contract tests**
 
 Create `tests/test_docs_contract.py`:
 
@@ -687,7 +687,7 @@ def test_readme_describes_only_the_stable_core_as_current_capability() -> None:
     assert "流式、多 Agent、记忆和 HTML 轨迹导出不属于 0.1.0 稳定 API" in readme
 ```
 
-- [ ] **Step 2: Run the test and verify the documentation mismatch**
+- [x] **Step 2: Run the test and verify the documentation mismatch**
 
 Run:
 
@@ -697,7 +697,7 @@ python -m pytest tests/test_docs_contract.py -v
 
 Expected: FAIL because the current README presents streaming, memory, Debate, and HTML export as current framework capabilities without an experimental boundary.
 
-- [ ] **Step 3: Rewrite the published contract and examples**
+- [x] **Step 3: Rewrite the published contract and examples**
 
 Rewrite `README.md` around this exact capability statement:
 
@@ -748,7 +748,7 @@ Keep non-core demos but add the first line after their module docstring:
 
 Leave `demo/reasoning.py` as the supported example and remove any streaming, memory, or Debate claims from it. In `core/__init__.py`, retain compatibility imports for `StreamChunk`, `SlidingWindowMemory`, and `LongTermMemory`, but place them below a comment reading `# Experimental compatibility exports; not part of the 0.1.0 stable API.`
 
-- [ ] **Step 4: Run the full verification suite**
+- [x] **Step 4: Run the full verification suite**
 
 Run:
 
@@ -761,7 +761,7 @@ git diff --check
 
 Expected: all commands exit `0`; the test suite performs no network calls and no test uses a real key.
 
-- [ ] **Step 5: Commit the documentation task**
+- [x] **Step 5: Commit the documentation task**
 
 ```bash
 git add README.md PLAN.md ROADMAP.md core/__init__.py demo tests/test_docs_contract.py

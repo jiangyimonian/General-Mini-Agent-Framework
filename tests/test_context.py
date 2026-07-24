@@ -10,6 +10,7 @@ import pytest
 from core.context import (
     ApproximateTokenCounter,
     ContextBudgetExceeded,
+    SummarizingContext,
     TokenBudgetContext,
 )
 
@@ -27,6 +28,17 @@ class FixedTokenCounter:
 class MessageCostCounter:
     def count(self, messages, *, tools=None) -> int:
         return sum(message.get("cost", 1) for message in messages) + len(tools or [])
+
+
+class OversizedSummaryCounter(MessageCostCounter):
+    def count(self, messages, *, tools=None) -> int:
+        total = super().count(messages, tools=tools)
+        if any(
+            str(message.get("content", "")).startswith("Conversation summary:")
+            for message in messages
+        ):
+            total += 10
+        return total
 
 
 def test_approximate_counter_is_deterministic_and_counts_tools() -> None:
@@ -275,3 +287,135 @@ def test_policy_rejects_invalid_message_or_tool_boundaries(messages) -> None:
 
     with pytest.raises(ValueError):
         policy.prepare(messages)
+
+
+def test_summary_replaces_only_turns_deterministic_policy_removes() -> None:
+    seen: list[list[dict[str, Any]]] = []
+
+    def summarize(turns):
+        seen.append(copy.deepcopy(list(turns)))
+        return "old facts"
+
+    base_policy = TokenBudgetContext(
+        context_window=6,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    policy = SummarizingContext(base_policy, summarize)
+    messages = [
+        {"role": "system", "content": "instructions"},
+        {"role": "user", "content": "old question"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "recent question"},
+        {"role": "assistant", "content": "recent answer"},
+        {"role": "user", "content": "current question"},
+    ]
+
+    prepared = policy.prepare(messages)
+
+    assert seen == [messages[1:3]]
+    assert prepared == [
+        {"role": "system", "content": "Conversation summary: old facts"},
+        messages[0],
+        *messages[3:],
+    ]
+
+
+def test_summary_is_not_called_when_context_already_fits() -> None:
+    calls = 0
+
+    def summarize(turns):
+        nonlocal calls
+        calls += 1
+        return "unused"
+
+    base_policy = TokenBudgetContext(
+        context_window=10,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    policy = SummarizingContext(base_policy, summarize)
+    messages = [{"role": "user", "content": "question"}]
+
+    assert policy.prepare(messages) == messages
+    assert calls == 0
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("failed"), ValueError("bad")])
+def test_summary_failure_falls_back_to_deterministic_trimming(failure) -> None:
+    def summarize(turns):
+        raise failure
+
+    base_policy = TokenBudgetContext(
+        context_window=6,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    policy = SummarizingContext(base_policy, summarize)
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u2"},
+        {"role": "assistant", "content": "a2"},
+        {"role": "user", "content": "u3"},
+    ]
+
+    assert policy.prepare(messages) == [messages[0], *messages[3:]]
+
+
+def test_oversized_summary_falls_back_to_deterministic_trimming() -> None:
+    base_policy = TokenBudgetContext(
+        context_window=6,
+        reserved_output_tokens=1,
+        token_counter=OversizedSummaryCounter(),
+    )
+    policy = SummarizingContext(base_policy, lambda turns: "too large")
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u2"},
+        {"role": "assistant", "content": "a2"},
+        {"role": "user", "content": "u3"},
+    ]
+
+    assert policy.prepare(messages) == [messages[0], *messages[3:]]
+
+
+def test_summary_receives_complete_removed_tool_call_unit() -> None:
+    seen: list[list[dict[str, Any]]] = []
+    base_policy = TokenBudgetContext(
+        context_window=6,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    policy = SummarizingContext(
+        base_policy,
+        lambda turns: seen.append(copy.deepcopy(list(turns))) or "tool facts",
+    )
+    old_turn = [
+        {"role": "user", "content": "old question"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": "{}"},
+            }],
+        },
+        {"role": "tool", "tool_call_id": "call-1", "content": "result"},
+        {"role": "assistant", "content": "old answer"},
+    ]
+    messages = [
+        {"role": "system", "content": "s"},
+        *old_turn,
+        {"role": "user", "content": "recent"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "current"},
+    ]
+
+    policy.prepare(messages)
+
+    assert seen == [old_turn]

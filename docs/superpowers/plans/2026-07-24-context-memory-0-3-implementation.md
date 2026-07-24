@@ -375,7 +375,7 @@ git commit -m "feat: enforce Agent context budgets and writeback"
 - Produces: `SummarizingContext(base_policy, summarizer)`
 - Produces: `Summarizer(turns: Sequence[Mapping[str, Any]]) -> str` protocol
 
-- [ ] **Step 1: Add failing summary behavior tests**
+- [x] **Step 1: Add failing summary behavior tests**
 
 ```python
 def test_summary_replaces_only_turns_that_base_policy_would_remove() -> None:
@@ -395,12 +395,12 @@ def test_summary_failure_falls_back_to_deterministic_trimming(failure) -> None:
 Add tests that no summarizer call occurs when input already fits, summaries do not mutate or write
 history, tool-call units given to the summarizer remain complete, and tools are included in recounts.
 
-- [ ] **Step 2: Run context tests and confirm missing summary wrapper**
+- [x] **Step 2: Run context tests and confirm missing summary wrapper**
 
 Run: `python -m pytest tests/test_context.py -v`
 Expected: new summary tests FAIL.
 
-- [ ] **Step 3: Implement request-local summarization with deterministic fallback**
+- [x] **Step 3: Implement request-local summarization with deterministic fallback**
 
 ```python
 def prepare(self, messages, *, tools=None):
@@ -421,12 +421,12 @@ the summarizer is called. The wrapper catches failures from the supplied summari
 its candidate and falls back to the already validated deterministic result; malformed original input
 is validated before this fallback boundary and remains visible to the caller.
 
-- [ ] **Step 4: Run context tests**
+- [x] **Step 4: Run context tests**
 
 Run: `python -m pytest tests/test_context.py -v`
 Expected: all context tests PASS.
 
-- [ ] **Step 5: Commit Task 5**
+- [x] **Step 5: Commit Task 5**
 
 ```bash
 git add core/context.py tests/test_context.py

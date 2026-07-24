@@ -51,6 +51,15 @@ class OversizedContentHandler(Protocol):
     ) -> list[dict[str, Any]]: ...
 
 
+class Summarizer(Protocol):
+    """Summarize complete conversation turns removed from one request."""
+
+    def __call__(
+        self,
+        turns: Sequence[Mapping[str, Any]],
+    ) -> str: ...
+
+
 class ApproximateTokenCounter:
     """Dependency-free deterministic estimate based on serialized characters."""
 
@@ -170,6 +179,46 @@ class TokenBudgetContext:
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise ValueError("token counter must return a non-negative integer")
         return count
+
+
+class SummarizingContext:
+    """Add a request-local summary of turns removed by a token budget."""
+
+    def __init__(
+        self,
+        base_policy: TokenBudgetContext,
+        summarizer: Summarizer,
+    ) -> None:
+        self.base_policy = base_policy
+        self.summarizer = summarizer
+
+    def prepare(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        *,
+        tools: Sequence[Mapping[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
+        trimmed, removed = self.base_policy._prepare_with_removed(
+            messages,
+            tools=tools,
+        )
+        if not removed:
+            return trimmed
+
+        try:
+            summary = self.summarizer(copy.deepcopy(removed))
+            if not isinstance(summary, str) or not summary.strip():
+                raise ValueError("summarizer must return non-empty text")
+            candidate = [
+                {
+                    "role": "system",
+                    "content": f"Conversation summary: {summary.strip()}",
+                },
+                *trimmed,
+            ]
+            return self.base_policy.prepare(candidate, tools=tools)
+        except Exception:
+            return trimmed
 
 
 def _copy_and_validate_messages(

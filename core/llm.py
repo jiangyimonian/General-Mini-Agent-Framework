@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import httpx
 
@@ -28,10 +29,14 @@ class ModelRequestError(RuntimeError):
         *,
         status_code: int | None = None,
         endpoint: str = "",
+        error_code: Literal[
+            "model_request_error", "stream_protocol_error"
+        ] = "model_request_error",
     ) -> None:
         super().__init__(self._sanitize(message))
         self.status_code = status_code
         self.endpoint = endpoint
+        self.error_code = error_code
 
     @staticmethod
     def _sanitize(message: str) -> str:
@@ -63,15 +68,35 @@ class LLMResponse:
     model: str = ""
 
 
+@dataclass(frozen=True)
+class ToolCallDelta:
+    index: int
+    id: str = ""
+    name: str = ""
+    arguments: str = ""
+
+
 @dataclass
 class StreamChunk:
     """流式响应的单个 chunk"""
-    content: str = ""           # 文本增量
-    finish_reason: str = ""     # "stop", "tool_calls", "length", None
-    tool_call_id: str = ""      # 当前 tool call id（增量拼接中）
-    tool_name: str = ""         # 当前 tool name
-    tool_args: str = ""         # 当前 tool arguments JSON 片段
+    content: str = ""
+    tool_calls: list[ToolCallDelta] = field(default_factory=list)
+    finish_reason: str = ""
     usage: dict[str, int] = field(default_factory=dict)
+    # Legacy fields keep current Agent consumers compatible during the 0.2 migration.
+    tool_call_id: str = ""
+    tool_name: str = ""
+    tool_args: str = ""
+
+
+@runtime_checkable
+class StreamingChatModel(ChatModel, Protocol):
+    def chat_stream(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[StreamChunk]: ...
 
 
 @dataclass

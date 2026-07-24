@@ -1,13 +1,55 @@
 """测试 LLM 层（响应解析逻辑，不依赖真实 API）"""
 
 import json
+from collections.abc import Iterator
 from unittest.mock import Mock
 
 import httpx
 import pytest
 
 import core.llm as llm_module
-from core.llm import LLM, LLMConfig, ModelRequestError
+from core import StreamChunk, StreamingChatModel, ToolCallDelta
+from core.llm import LLM, LLMConfig, LLMResponse, ModelRequestError
+
+
+def test_model_request_error_defaults_to_request_error_code() -> None:
+    error = ModelRequestError("request failed")
+
+    assert error.error_code == "model_request_error"
+
+
+def test_model_request_error_accepts_protocol_error_code() -> None:
+    error = ModelRequestError(
+        "invalid model stream",
+        error_code="stream_protocol_error",
+    )
+
+    assert error.error_code == "stream_protocol_error"
+
+
+def test_stream_chunk_exposes_indexed_tool_call_deltas() -> None:
+    chunk = StreamChunk(
+        content="thinking",
+        tool_calls=[
+            ToolCallDelta(index=1, id="call_2", name="add", arguments='{"a":'),
+        ],
+        finish_reason="tool_calls",
+        usage={"total_tokens": 4},
+    )
+
+    assert chunk.tool_calls[0].index == 1
+    assert chunk.tool_calls[0].arguments == '{"a":'
+
+
+def test_streaming_chat_model_runtime_protocol_requires_both_paths() -> None:
+    class CompleteModel:
+        def chat(self, messages, *, tools=None) -> LLMResponse:
+            return LLMResponse(content="ok", tool_calls=None)
+
+        def chat_stream(self, messages, *, tools=None) -> Iterator[StreamChunk]:
+            yield StreamChunk(content="ok", finish_reason="stop")
+
+    assert isinstance(CompleteModel(), StreamingChatModel)
 
 
 def test_model_request_error_sanitizes_authorization_values() -> None:

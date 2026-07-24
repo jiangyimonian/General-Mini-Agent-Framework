@@ -362,6 +362,7 @@ class Agent:
             tool_calls = _ToolCallAccumulator()
             finalized_calls: list[_AccumulatedToolCall] | None = None
             finish_reason = ""
+            request_usage: dict[str, int] = {}
 
             try:
                 for chunk in self.llm.chat_stream(
@@ -378,13 +379,16 @@ class Agent:
                     for delta in chunk.tool_calls:
                         tool_calls.add(delta)
 
-                    if chunk.usage:
-                        self._accumulate_usage(total_usage, chunk.usage)
+                    for key, value in chunk.usage.items():
+                        if isinstance(value, int):
+                            request_usage[key] = value
                     if chunk.finish_reason:
                         finish_reason = chunk.finish_reason
                 if finish_reason == "tool_calls":
                     finalized_calls = tool_calls.finalize()
+                self._accumulate_usage(total_usage, request_usage)
             except ModelRequestError as exc:
+                self._accumulate_usage(total_usage, request_usage)
                 error = str(exc)
                 trace.append({
                     "type": "model_error",

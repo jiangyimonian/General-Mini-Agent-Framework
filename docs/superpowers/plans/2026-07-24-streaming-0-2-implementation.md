@@ -955,7 +955,7 @@ Run `git diff --check` and report call ordering, invalid-argument recovery, and 
 - Consumes: stable events and indexed tool execution from Tasks 3-4.
 - Produces: once-per-request usage accumulation, complete streaming trace metadata, hook parity, and per-run state isolation.
 
-- [ ] **Step 1: Write failing usage tests**
+- [x] **Step 1: Write failing usage tests**
 
 Prove repeated cumulative usage chunks are counted once per request and separate requests are added:
 
@@ -995,7 +995,7 @@ def test_run_stream_counts_latest_usage_once_per_request() -> None:
 
 Add a model-error-after-usage test and require the latest usage seen before failure to appear in `done`.
 
-- [ ] **Step 2: Write failing trace, hook, and isolation tests**
+- [x] **Step 2: Write failing trace, hook, and isolation tests**
 
 Assert tool traces contain `iteration`, `tool_call_id`, `index`, `tool`, parsed or raw arguments, observation, and error code. Assert incomplete and model-error paths add explicit trace entries. Assert `on_tool_call` receives one trace event for malformed JSON, unknown tools, parameter validation failure, and tool exceptions; assert `on_final` is absent for incomplete and model-error paths.
 
@@ -1018,7 +1018,7 @@ def test_run_stream_state_is_isolated_between_invocations() -> None:
     assert len(second_done["trace"]) == 1
 ```
 
-- [ ] **Step 3: Run cross-cutting tests to verify RED**
+- [x] **Step 3: Run cross-cutting tests to verify RED**
 
 Run:
 
@@ -1028,7 +1028,7 @@ python -m pytest tests/test_agent.py -k "usage or trace or hook or isolated" -v
 
 Expected: cumulative usage is double-counted or incomplete metadata assertions fail.
 
-- [ ] **Step 4: Accumulate the latest usage once per model request**
+- [x] **Step 4: Accumulate the latest usage once per model request**
 
 Create a request-local dictionary at the start of each iteration:
 
@@ -1046,7 +1046,7 @@ self._accumulate_usage(total_usage, request_usage)
 
 In the `ModelRequestError` handler, call `_accumulate_usage(total_usage, request_usage)` before creating terminal events. Do not add usage to totals inside the chunk loop.
 
-- [ ] **Step 5: Complete trace and hook metadata**
+- [x] **Step 5: Complete trace and hook metadata**
 
 Extend `TraceEvent` with optional `index`, `tool_call_id`, `raw_arguments`, and `finish_reason`. Build tool traces from the same local values used by public events, and use one private helper for optional error-code insertion:
 
@@ -1059,7 +1059,7 @@ def _with_error_code(event: dict[str, Any], error_code: str | None) -> None:
 
 Call `on_tool_call` only after the complete trace event has been appended. Call `on_final` only after the completed final trace exists. Keep hook exceptions unchanged from the existing synchronous behavior.
 
-- [ ] **Step 6: Run focused and full regression tests**
+- [x] **Step 6: Run focused and full regression tests**
 
 Run:
 
@@ -1071,7 +1071,7 @@ python -m compileall -q core demo tests
 
 Expected: all tests pass and `compileall` exits with no output.
 
-- [ ] **Step 7: Stop for review**
+- [x] **Step 7: Stop for review**
 
 Run `git diff --check` and report usage totals, hook counts, trace fields, and isolation assertions. Suggested commit message after approval: `test: complete streaming behavior coverage`.
 

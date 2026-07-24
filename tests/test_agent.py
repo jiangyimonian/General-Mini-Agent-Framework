@@ -205,6 +205,109 @@ def test_run_stream_rejects_invalid_tool_call_metadata(
     assert events[-1]["stop_reason"] == "model_error"
 
 
+def test_run_stream_counts_latest_usage_once_per_request() -> None:
+    @tool
+    def noop() -> str:
+        return "ok"
+
+    model = ScriptedStreamingChatModel([], [
+        [
+            StreamChunk(usage={"prompt_tokens": 3, "total_tokens": 3}),
+            StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c1", "noop", "{}")],
+                finish_reason="tool_calls",
+            ),
+            StreamChunk(
+                usage={"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+            ),
+        ],
+        [
+            StreamChunk(content="done", finish_reason="stop"),
+            StreamChunk(
+                usage={"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5}
+            ),
+        ],
+    ])
+
+    done = list(Agent(llm=model, tools=[noop]).run_stream("question"))[-1]
+
+    assert done["usage"] == {
+        "prompt_tokens": 7,
+        "completion_tokens": 3,
+        "total_tokens": 10,
+    }
+
+
+def test_run_stream_retains_usage_seen_before_model_error() -> None:
+    class YieldThenFailModel:
+        def chat_stream(self, messages, *, tools=None):
+            yield StreamChunk(usage={"prompt_tokens": 4, "total_tokens": 4})
+            raise ModelRequestError("stream failed")
+
+    events = list(Agent(llm=YieldThenFailModel(), tools=[]).run_stream("question"))
+
+    assert events[-1]["stop_reason"] == "model_error"
+    assert events[-1]["usage"] == {"prompt_tokens": 4, "total_tokens": 4}
+
+
+def test_run_stream_trace_and_hooks_match_public_tool_events() -> None:
+    tool_hooks: list[dict] = []
+    final_hooks: list[dict] = []
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "missing", "{}")],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(content="recovered", finish_reason="stop")],
+    ])
+    agent = Agent(
+        llm=model,
+        tools=[],
+        hooks={
+            "on_tool_call": tool_hooks.append,
+            "on_final": final_hooks.append,
+        },
+    )
+
+    done = list(agent.run_stream("question"))[-1]
+    tool_trace = done["trace"][0]
+
+    assert tool_trace["tool_call_id"] == "c1"
+    assert tool_trace["index"] == 0
+    assert tool_trace["raw_arguments"] == "{}"
+    assert tool_trace["error_code"] == "unknown_tool"
+    assert tool_hooks == [tool_trace]
+    assert len(final_hooks) == 1
+
+
+def test_run_stream_does_not_call_final_hook_for_incomplete_response() -> None:
+    final_hooks: list[dict] = []
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="partial", finish_reason="length")]],
+    )
+
+    list(Agent(llm=model, tools=[], hooks={"on_final": final_hooks.append}).run_stream("q"))
+
+    assert final_hooks == []
+
+
+def test_run_stream_state_is_isolated_between_invocations() -> None:
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(content="first", finish_reason="stop", usage={"total_tokens": 2})],
+        [StreamChunk(content="second", finish_reason="stop", usage={"total_tokens": 3})],
+    ])
+    agent = Agent(llm=model, tools=[])
+
+    first_done = list(agent.run_stream("one"))[-1]
+    second_done = list(agent.run_stream("two"))[-1]
+
+    assert first_done["content"] == "first"
+    assert second_done["content"] == "second"
+    assert second_done["usage"] == {"total_tokens": 3}
+    assert len(second_done["trace"]) == 1
+
+
 def make_mock_llm(responses: list[LLMResponse]):
     """创建一个返回预设响应的 Mock LLM"""
     mock = Mock()

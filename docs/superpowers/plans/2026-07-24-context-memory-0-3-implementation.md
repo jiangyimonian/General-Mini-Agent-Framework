@@ -205,7 +205,7 @@ git commit -m "feat: trim context by atomic conversation turns"
 - Produces: `ConversationMemory.get_context()`, `add_messages(messages)`, and `clear()` protocol
 - Produces: `InMemoryConversation(initial_messages=None)`
 
-- [ ] **Step 1: Add failing atomicity and defensive-copy tests**
+- [x] **Step 1: Add failing atomicity and defensive-copy tests**
 
 ```python
 def test_in_memory_conversation_appends_batch_atomically() -> None:
@@ -233,12 +233,12 @@ def test_invalid_batch_does_not_partially_append() -> None:
 Add tests that constructor input and snapshots are deep-copied, `clear()` works, and separate
 instances do not share state. Keep all existing `SlidingWindowMemory` tests.
 
-- [ ] **Step 2: Run memory tests and confirm missing implementation**
+- [x] **Step 2: Run memory tests and confirm missing implementation**
 
 Run: `python -m pytest tests/test_memory.py -v`
 Expected: FAIL because `InMemoryConversation` is not defined.
 
-- [ ] **Step 3: Implement protocol and validated batch storage**
+- [x] **Step 3: Implement protocol and validated batch storage**
 
 ```python
 class InMemoryConversation:
@@ -261,12 +261,12 @@ class InMemoryConversation:
 The validator accepts OpenAI chat roles and preserves structured assistant/tool metadata. It never
 stores caller-owned nested dictionaries.
 
-- [ ] **Step 4: Run memory tests**
+- [x] **Step 4: Run memory tests**
 
 Run: `python -m pytest tests/test_memory.py -v`
 Expected: all memory tests PASS.
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```bash
 git add core/memory.py tests/test_memory.py

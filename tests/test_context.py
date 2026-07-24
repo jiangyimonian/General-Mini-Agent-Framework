@@ -24,6 +24,11 @@ class FixedTokenCounter:
         return self.tokens
 
 
+class MessageCostCounter:
+    def count(self, messages, *, tools=None) -> int:
+        return sum(message.get("cost", 1) for message in messages) + len(tools or [])
+
+
 def test_approximate_counter_is_deterministic_and_counts_tools() -> None:
     counter = ApproximateTokenCounter()
     messages = [{"role": "user", "content": "abcdefgh"}]
@@ -103,3 +108,170 @@ def test_budget_error_exposes_only_safe_size_metadata() -> None:
     assert caught.value.input_tokens == 6
     assert caught.value.input_budget == 5
     assert secret not in str(caught.value)
+
+
+def test_trimming_removes_oldest_turn_and_preserves_recent_turns() -> None:
+    policy = TokenBudgetContext(
+        context_window=6,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u2"},
+        {"role": "assistant", "content": "a2"},
+        {"role": "user", "content": "u3"},
+    ]
+
+    assert policy.prepare(messages) == [messages[0], *messages[3:]]
+
+
+def test_trimming_never_orphans_tool_results() -> None:
+    policy = TokenBudgetContext(
+        context_window=7,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "old question"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "old-call",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": "{}"},
+            }],
+        },
+        {"role": "tool", "tool_call_id": "old-call", "content": "old result"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "recent question"},
+        {"role": "assistant", "content": "recent answer"},
+        {"role": "user", "content": "current question"},
+    ]
+
+    prepared = policy.prepare(messages)
+
+    assert prepared == [messages[0], *messages[5:]]
+    assert not any(message.get("tool_call_id") == "old-call" for message in prepared)
+
+
+def test_tool_schemas_can_force_an_old_turn_to_be_trimmed() -> None:
+    policy = TokenBudgetContext(
+        context_window=7,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "u0"},
+        {"role": "assistant", "content": "a0"},
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": "u2"},
+    ]
+    tools = [{"type": "function"}, {"type": "function"}]
+
+    assert policy.prepare(messages, tools=tools) == [messages[0], *messages[3:]]
+
+
+def test_protected_turns_raise_when_they_cannot_fit() -> None:
+    policy = TokenBudgetContext(
+        context_window=4,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "previous"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "current"},
+    ]
+
+    with pytest.raises(ContextBudgetExceeded) as caught:
+        policy.prepare(messages)
+
+    assert caught.value.input_tokens == 4
+    assert caught.value.input_budget == 3
+
+
+def test_oversized_handler_is_recounted_before_returning() -> None:
+    seen: list[list[dict[str, Any]]] = []
+
+    def compress(messages, input_budget):
+        seen.append(copy.deepcopy(list(messages)))
+        assert input_budget == 3
+        return [
+            {"role": "system", "content": "compressed"},
+            {"role": "user", "content": "current"},
+        ]
+
+    policy = TokenBudgetContext(
+        context_window=4,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+        oversized_content_handler=compress,
+    )
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "previous"},
+        {"role": "assistant", "content": "answer"},
+        {"role": "user", "content": "current"},
+    ]
+
+    prepared = policy.prepare(messages)
+
+    assert seen == [messages]
+    assert prepared == [
+        {"role": "system", "content": "compressed"},
+        {"role": "user", "content": "current"},
+    ]
+
+
+def test_oversized_handler_cannot_return_an_oversized_replacement() -> None:
+    policy = TokenBudgetContext(
+        context_window=3,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+        oversized_content_handler=lambda messages, budget: list(messages),
+    )
+
+    with pytest.raises(ContextBudgetExceeded):
+        policy.prepare([
+            {"role": "system", "content": "s"},
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "a"},
+        ])
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        [{"role": "invalid", "content": "bad"}],
+        [{"role": "tool", "tool_call_id": "orphan", "content": "bad"}],
+        [
+            {"role": "user", "content": "q"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "missing-result",
+                    "type": "function",
+                    "function": {"name": "lookup", "arguments": "{}"},
+                }],
+            },
+        ],
+    ],
+)
+def test_policy_rejects_invalid_message_or_tool_boundaries(messages) -> None:
+    policy = TokenBudgetContext(
+        context_window=100,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+
+    with pytest.raises(ValueError):
+        policy.prepare(messages)

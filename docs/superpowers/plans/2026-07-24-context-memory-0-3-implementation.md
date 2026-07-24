@@ -123,7 +123,7 @@ git commit -m "feat: define context budget contracts"
 - Consumes: Task 1 `TokenCounter`, `TokenBudgetContext`, and `ContextBudgetExceeded`
 - Produces: atomic turn grouping and `OversizedContentHandler(messages, input_budget) -> list[dict[str, Any]]`
 
-- [ ] **Step 1: Add failing grouping and trimming tests with an exact fake counter**
+- [x] **Step 1: Add failing grouping and trimming tests with an exact fake counter**
 
 ```python
 class MessageCostCounter:
@@ -158,12 +158,12 @@ def test_trimming_never_orphans_tool_results() -> None:
 Also add tests for protected overflow, tools included in exact counts, input immutability, returned
 copy isolation, malformed tool chains, and successful/failed oversized-content handling.
 
-- [ ] **Step 2: Run the new tests and confirm unimplemented trimming failures**
+- [x] **Step 2: Run the new tests and confirm unimplemented trimming failures**
 
 Run: `python -m pytest tests/test_context.py -v`
 Expected: new trimming tests FAIL while Task 1 tests remain green.
 
-- [ ] **Step 3: Implement atomic grouping and oldest-removable-unit selection**
+- [x] **Step 3: Implement atomic grouping and oldest-removable-unit selection**
 
 ```python
 def prepare(self, messages, *, tools=None):
@@ -183,12 +183,12 @@ Validate roles, `tool_calls`, and matching `tool_call_id` relationships before t
 message data with `copy.deepcopy`. The overflow handler receives copied protected messages, its
 result is validated and recounted, and failure raises the original safe error type.
 
-- [ ] **Step 4: Run all context tests**
+- [x] **Step 4: Run all context tests**
 
 Run: `python -m pytest tests/test_context.py -v`
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add core/context.py tests/test_context.py

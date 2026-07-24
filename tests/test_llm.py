@@ -12,6 +12,38 @@ from core import StreamChunk, StreamingChatModel, ToolCallDelta
 from core.llm import LLM, LLMConfig, LLMResponse, ModelRequestError
 
 
+def make_streaming_llm(
+    payload: bytes,
+    *,
+    requests: list[httpx.Request] | None = None,
+    max_retries: int = 1,
+) -> LLM:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if requests is not None:
+            requests.append(request)
+        return httpx.Response(200, content=payload, request=request)
+
+    llm = LLM(
+        LLMConfig(
+            api_key="test-key",
+            base_url="https://example.test/v1",
+            max_retries=max_retries,
+        )
+    )
+    llm._client.close()
+    llm._client = httpx.Client(
+        base_url=llm.config.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    return llm
+
+
+class FailingAfterFirstChunk(httpx.SyncByteStream):
+    def __iter__(self):
+        yield b'data: {"choices":[{"delta":{"content":"first"},"finish_reason":null}]}\n\n'
+        raise httpx.ReadError("sensitive transport detail")
+
+
 def test_model_request_error_defaults_to_request_error_code() -> None:
     error = ModelRequestError("request failed")
 
@@ -50,6 +82,102 @@ def test_streaming_chat_model_runtime_protocol_requires_both_paths() -> None:
             yield StreamChunk(content="ok", finish_reason="stop")
 
     assert isinstance(CompleteModel(), StreamingChatModel)
+
+
+def test_chat_stream_parses_interleaved_tool_calls_and_usage() -> None:
+    requests: list[httpx.Request] = []
+    llm = make_streaming_llm(
+        b": keep-alive\n\n"
+        b'data:{"choices":[{"delta":{"tool_calls":['
+        b'{"index":1,"id":"c2","function":{"name":"multiply","arguments":"{\\"a\\":"}},'
+        b'{"index":0,"id":"c1","function":{"name":"add","arguments":"{\\"a\\":"}}'
+        b']},"finish_reason":null}]}\n\n'
+        b'data: {"choices":[{"delta":{"tool_calls":['
+        b'{"index":0,"function":{"arguments":"1}"}},'
+        b'{"index":1,"function":{"arguments":"2}"}}'
+        b']},"finish_reason":"tool_calls"}]}\n\n'
+        b'data: {"choices":[],"usage":{"prompt_tokens":3,"total_tokens":5}}\n\n'
+        b"data: [DONE]\n\n",
+        requests=requests,
+    )
+
+    chunks = list(llm.chat_stream([]))
+
+    assert [delta.index for delta in chunks[0].tool_calls] == [1, 0]
+    assert chunks[1].finish_reason == "tool_calls"
+    assert chunks[2].usage == {"prompt_tokens": 3, "total_tokens": 5}
+    request_body = json.loads(requests[0].content)
+    assert request_body["stream_options"] == {"include_usage": True}
+
+
+def test_chat_stream_rejects_tool_call_without_integer_index() -> None:
+    llm = make_streaming_llm(
+        b'data: {"choices":[{"delta":{"tool_calls":['
+        b'{"id":"c1","function":{"name":"add","arguments":"{}"}}'
+        b']},"finish_reason":"tool_calls"}]}\n\n'
+    )
+
+    with pytest.raises(ModelRequestError) as exc_info:
+        list(llm.chat_stream([]))
+
+    assert exc_info.value.error_code == "stream_protocol_error"
+
+
+def test_chat_stream_rejects_non_json_data_without_retrying() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"data: not-json\n\n", request=request)
+
+    llm = LLM(
+        LLMConfig(
+            api_key="test-key",
+            base_url="https://example.test/v1",
+            max_retries=3,
+        )
+    )
+    llm._client.close()
+    llm._client = httpx.Client(
+        base_url=llm.config.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelRequestError) as exc_info:
+        list(llm.chat_stream([]))
+
+    assert exc_info.value.error_code == "stream_protocol_error"
+    assert str(exc_info.value) == "invalid JSON in model stream"
+    assert calls == 1
+
+
+def test_chat_stream_does_not_retry_after_yielding_output() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, stream=FailingAfterFirstChunk(), request=request)
+
+    llm = LLM(
+        LLMConfig(
+            api_key="test-key",
+            base_url="https://example.test/v1",
+            max_retries=3,
+        )
+    )
+    llm._client.close()
+    llm._client = httpx.Client(
+        base_url=llm.config.base_url,
+        transport=httpx.MockTransport(handler),
+    )
+    stream = llm.chat_stream([])
+
+    assert next(stream).content == "first"
+    with pytest.raises(ModelRequestError, match="model streaming request failed"):
+        next(stream)
+    assert calls == 1
 
 
 def test_model_request_error_sanitizes_authorization_values() -> None:

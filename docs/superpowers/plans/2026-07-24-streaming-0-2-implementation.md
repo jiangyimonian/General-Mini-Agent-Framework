@@ -198,7 +198,7 @@ Run `git diff --check` and summarize the new public types and compatibility beha
 - Consumes: `ToolCallDelta`, `StreamChunk`, `ModelRequestError.error_code`, and `LLMConfig.max_retries` from Task 1.
 - Produces: `LLM.chat_stream(...) -> Iterator[StreamChunk]` with strict `data:` parsing, indexed tool deltas, usage-only chunks, and a no-duplication retry boundary.
 
-- [ ] **Step 1: Add an offline stream-response helper and parser tests**
+- [x] **Step 1: Add an offline stream-response helper and parser tests**
 
 Add a helper using `httpx.MockTransport`:
 
@@ -254,7 +254,7 @@ request_body = json.loads(request.content)
 assert request_body["stream_options"] == {"include_usage": True}
 ```
 
-- [ ] **Step 2: Add malformed-data and retry-boundary tests**
+- [x] **Step 2: Add malformed-data and retry-boundary tests**
 
 Pin malformed JSON as a non-retryable protocol error:
 
@@ -307,7 +307,7 @@ def test_chat_stream_does_not_retry_after_yielding_output() -> None:
     assert calls == 1
 ```
 
-- [ ] **Step 3: Run new tests to verify RED**
+- [x] **Step 3: Run new tests to verify RED**
 
 Run:
 
@@ -317,7 +317,7 @@ python -m pytest tests/test_llm.py -k "interleaved or non_json or after_yielding
 
 Expected: failures show missing indexed deltas, silently skipped malformed JSON, missing streamed usage, or an incorrect retry.
 
-- [ ] **Step 4: Implement strict SSE parsing**
+- [x] **Step 4: Implement strict SSE parsing**
 
 Make `tools` keyword-only in the concrete method so it matches `StreamingChatModel`:
 
@@ -396,7 +396,7 @@ def _parse_stream_chunk(self, data: dict[str, Any]) -> StreamChunk | None:
 
 Retain the existing HTTP status sanitization. Catch `httpx.HTTPError` after the yielded-chunk check and convert it to `ModelRequestError("model streaming request failed")` without embedding the original response or request text.
 
-- [ ] **Step 5: Run focused and full regression tests**
+- [x] **Step 5: Run focused and full regression tests**
 
 Run:
 
@@ -407,7 +407,7 @@ python -m pytest tests -v
 
 Expected: all tests pass and every transport request is handled by an offline mock.
 
-- [ ] **Step 6: Stop for review**
+- [x] **Step 6: Stop for review**
 
 Run `git diff --check` and report parser behavior plus retry counts. Suggested commit message after approval: `feat: harden streaming SSE parsing`.
 

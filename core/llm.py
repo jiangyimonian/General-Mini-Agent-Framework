@@ -175,9 +175,10 @@ class LLM:
 
     def chat_stream(
         self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-    ):
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[StreamChunk]:
         """流式调用 LLM，逐 chunk yield StreamChunk"""
         body: dict[str, Any] = {
             "model": self.config.model,
@@ -185,6 +186,7 @@ class LLM:
             "temperature": self.config.temperature,
             "max_tokens": self.config.max_tokens,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if tools:
             body["tools"] = tools
@@ -195,23 +197,30 @@ class LLM:
             try:
                 with self._client.stream("POST", "/chat/completions", json=body) as resp:
                     resp.raise_for_status()
-                    # 流式解析 SSE
                     for line in resp.iter_lines():
-                        if not line or not line.startswith("data: "):
+                        if not line or line.startswith(":") or not line.startswith("data:"):
                             continue
-                        data_str = line[6:]  # 去掉 "data: " 前缀
+                        data_str = line[5:]
+                        if data_str.startswith(" "):
+                            data_str = data_str[1:]
                         if data_str == "[DONE]":
                             break
                         try:
                             data = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
+                        except json.JSONDecodeError as exc:
+                            raise ModelRequestError(
+                                "invalid JSON in model stream",
+                                endpoint="/chat/completions",
+                                error_code="stream_protocol_error",
+                            ) from exc
 
                         chunk = self._parse_stream_chunk(data)
                         if chunk is not None:
                             yielded_chunk = True
                             yield chunk
                 return
+            except ModelRequestError:
+                raise
             except httpx.HTTPStatusError as exc:
                 last_error = exc
                 if not yielded_chunk and exc.response.status_code in (429, 502, 503, 504):
@@ -227,7 +236,7 @@ class LLM:
                     status_code=exc.response.status_code,
                     endpoint="/chat/completions",
                 ) from exc
-            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+            except httpx.TransportError as exc:
                 last_error = exc
                 if yielded_chunk:
                     raise ModelRequestError(
@@ -236,12 +245,6 @@ class LLM:
                     ) from exc
                 self._sleep(attempt)
                 continue
-            except httpx.HTTPError as exc:
-                raise ModelRequestError(
-                    "model streaming request failed",
-                    endpoint="/chat/completions",
-                ) from exc
-
         raise ModelRequestError(
             "model request failed after retries",
             endpoint="/chat/completions",
@@ -249,34 +252,44 @@ class LLM:
 
     # ── 内部方法 ────────────────────────────────────────
 
-    def _parse_stream_chunk(self, data: dict) -> StreamChunk | None:
+    def _parse_stream_chunk(self, data: dict[str, Any]) -> StreamChunk | None:
         """解析单个 SSE data chunk"""
-        if "choices" not in data or not data["choices"]:
-            return None
+        usage = data.get("usage") or {}
+        choices = data.get("choices") or []
+        if not choices:
+            return StreamChunk(usage=usage) if usage else None
 
-        choice = data["choices"][0]
-        delta = choice.get("delta", {})
-        finish = choice.get("finish_reason", "")
+        choice = choices[0]
+        delta = choice.get("delta") or {}
+        tool_calls: list[ToolCallDelta] = []
+        for raw_call in delta.get("tool_calls") or []:
+            index = raw_call.get("index")
+            if not isinstance(index, int):
+                raise ModelRequestError(
+                    "model stream tool call is missing an integer index",
+                    endpoint="/chat/completions",
+                    error_code="stream_protocol_error",
+                )
+            function = raw_call.get("function") or {}
+            tool_calls.append(
+                ToolCallDelta(
+                    index=index,
+                    id=raw_call.get("id") or "",
+                    name=function.get("name") or "",
+                    arguments=function.get("arguments") or "",
+                )
+            )
 
-        chunk = StreamChunk(
-            content=delta.get("content", ""),
-            finish_reason=finish or "",
-            usage=data.get("usage", {}),
+        first_call = tool_calls[0] if tool_calls else None
+        return StreamChunk(
+            content=delta.get("content") or "",
+            tool_calls=tool_calls,
+            finish_reason=choice.get("finish_reason") or "",
+            usage=usage,
+            tool_call_id=first_call.id if first_call else "",
+            tool_name=first_call.name if first_call else "",
+            tool_args=first_call.arguments if first_call else "",
         )
-
-        # 流式 tool_calls：delta 里可能包含 tool_calls 片段
-        if "tool_calls" in delta:
-            for tc in delta["tool_calls"]:
-                # 第一个 chunk 带 id 和 function.name
-                if "id" in tc:
-                    chunk.tool_call_id = tc["id"]
-                if "function" in tc:
-                    if "name" in tc["function"]:
-                        chunk.tool_name = tc["function"]["name"]
-                    if "arguments" in tc["function"]:
-                        chunk.tool_args = tc["function"]["arguments"]
-
-        return chunk
 
     def _parse_response(self, data: dict) -> LLMResponse:
         """解析 OpenAI 兼容的 response JSON"""

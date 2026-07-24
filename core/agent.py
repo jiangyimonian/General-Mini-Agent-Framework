@@ -7,13 +7,20 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, NotRequired, TypedDict
 
+from .context import ContextBudgetExceeded, ContextPolicy
 from .llm import ChatModel, ModelRequestError, ToolCallDelta
 from .tools import Tool, ToolExecutionResult, ToolRegistry
 
 # ─── 结果类型 ───────────────────────────────────────────────
 
 
-AgentStopReason = Literal["completed", "max_iterations", "model_error", "incomplete"]
+AgentStopReason = Literal[
+    "completed",
+    "max_iterations",
+    "model_error",
+    "incomplete",
+    "context_budget_exceeded",
+]
 
 
 class TraceEvent(TypedDict):
@@ -209,11 +216,13 @@ class Agent:
         system_prompt: str | None = None,
         max_iterations: int = 10,
         memory: Any | None = None,
+        context_policy: ContextPolicy | None = None,
         hooks: dict[str, Callable] | None = None,
     ):
         self.llm = llm
         self.max_iterations = max_iterations
         self.memory = memory
+        self.context_policy = context_policy
 
         self.registry = ToolRegistry(tools or [])
         self.tools = self.registry.list()
@@ -244,7 +253,29 @@ class Agent:
         # ── ReAct 循环 ────────────────────────────────
         for iteration in range(self.max_iterations):
             try:
-                response = self.llm.chat(messages, tools=self.registry.schemas())
+                request_messages = self._prepare_request(messages)
+            except ContextBudgetExceeded as exc:
+                error = str(exc)
+                trace.append({
+                    "type": "context_error",
+                    "iteration": iteration,
+                    "error_code": "context_budget_exceeded",
+                    "message": error,
+                })
+                return AgentResult(
+                    content="",
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration,
+                    stop_reason="context_budget_exceeded",
+                    error=error,
+                )
+
+            try:
+                response = self.llm.chat(
+                    request_messages,
+                    tools=self.registry.schemas(),
+                )
             except ModelRequestError:
                 trace.append({
                     "type": "model_error",
@@ -318,6 +349,7 @@ class Agent:
                     "final_answer": clean_content,
                 })
                 self._call_hook("on_final", trace[-1])
+                self._commit_exchange(user_input, clean_content)
                 return AgentResult(
                     content=clean_content,
                     trace=trace,
@@ -365,8 +397,28 @@ class Agent:
             request_usage: dict[str, int] = {}
 
             try:
+                request_messages = self._prepare_request(messages)
+            except ContextBudgetExceeded as exc:
+                error = str(exc)
+                trace.append({
+                    "type": "context_error",
+                    "iteration": iteration,
+                    "error_code": "context_budget_exceeded",
+                    "message": error,
+                })
+                yield self._done_event(
+                    content="",
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration,
+                    stop_reason="context_budget_exceeded",
+                    error=error,
+                )
+                return
+
+            try:
                 for chunk in self.llm.chat_stream(
-                    messages, tools=self.registry.schemas()
+                    request_messages, tools=self.registry.schemas()
                 ):
                     if chunk.content:
                         thought_parts.append(chunk.content)
@@ -516,6 +568,7 @@ class Agent:
                     "final_answer": clean,
                 })
                 self._call_hook("on_final", trace[-1])
+                self._commit_exchange(user_input, clean)
                 yield self._done_event(
                     content=clean,
                     trace=trace,
@@ -597,6 +650,25 @@ class Agent:
         if callable(get_context):
             return get_context()
         return []
+
+    def _prepare_request(
+        self,
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if self.context_policy is None:
+            return messages
+        return self.context_policy.prepare(
+            messages,
+            tools=self.registry.schemas(),
+        )
+
+    def _commit_exchange(self, user_input: str, assistant_content: str) -> None:
+        add_messages = getattr(self.memory, "add_messages", None)
+        if callable(add_messages):
+            add_messages([
+                {"role": "user", "content": user_input},
+                {"role": "assistant", "content": assistant_content},
+            ])
 
     def _accumulate_usage(self, total: dict, current: dict) -> None:
         for key, val in current.items():

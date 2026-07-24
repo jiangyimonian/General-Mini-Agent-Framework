@@ -284,7 +284,7 @@ git commit -m "feat: add transactional conversation memory"
 - Produces: optional `Agent(..., context_policy: ContextPolicy | None = None)`
 - Produces: `AgentStopReason` value `context_budget_exceeded`
 
-- [ ] **Step 1: Add failing synchronous preparation and writeback tests**
+- [x] **Step 1: Add failing synchronous preparation and writeback tests**
 
 ```python
 def test_run_prepares_every_model_request_and_commits_completed_exchange() -> None:
@@ -304,7 +304,7 @@ Add tests that context overflow prevents model access, tool observations are pre
 policy call, model errors and max iterations do not write, and `get_context()`-only legacy memory is
 still read without write attempts.
 
-- [ ] **Step 2: Add failing streaming preparation, terminal, and cancellation tests**
+- [x] **Step 2: Add failing streaming preparation, terminal, and cancellation tests**
 
 ```python
 def test_abandoned_stream_does_not_write_memory() -> None:
@@ -324,12 +324,12 @@ def test_stream_context_overflow_yields_terminal_done_without_model_call() -> No
 Also cover incomplete and model-error streams leaving memory unchanged, successful streams writing
 once, and memory write failures escaping instead of being reported as model failures.
 
-- [ ] **Step 3: Run focused Agent tests and confirm failures**
+- [x] **Step 3: Run focused Agent tests and confirm failures**
 
 Run: `python -m pytest tests/test_agent.py -k "context or memory or writeback or abandoned" -v`
 Expected: new tests FAIL before Agent integration.
 
-- [ ] **Step 4: Implement bounded helpers shared by both execution loops**
+- [x] **Step 4: Implement bounded helpers shared by both execution loops**
 
 ```python
 def _prepare_request(self, messages):
@@ -352,12 +352,12 @@ Call `_prepare_request()` immediately before every model invocation. Catch only
 `_commit_exchange()` after final-answer hooks succeed and immediately before returning
 `AgentResult` or yielding successful `done`.
 
-- [ ] **Step 5: Run focused Agent and existing memory compatibility tests**
+- [x] **Step 5: Run focused Agent and existing memory compatibility tests**
 
 Run: `python -m pytest tests/test_agent.py tests/test_memory.py -v`
 Expected: all tests in both files PASS.
 
-- [ ] **Step 6: Commit Task 4**
+- [x] **Step 6: Commit Task 4**
 
 ```bash
 git add core/agent.py tests/test_agent.py

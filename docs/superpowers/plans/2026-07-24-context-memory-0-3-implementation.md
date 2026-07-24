@@ -48,7 +48,7 @@
 - Produces: `ContextBudgetExceeded(input_tokens, input_budget)`
 - Produces: `TokenBudgetContext(context_window, reserved_output_tokens, token_counter=None, oversized_content_handler=None)`
 
-- [ ] **Step 1: Write failing contract and estimator tests**
+- [x] **Step 1: Write failing contract and estimator tests**
 
 ```python
 def test_approximate_counter_is_deterministic_and_counts_tools() -> None:
@@ -68,12 +68,12 @@ def test_budget_configuration_rejects_invalid_values(window: int, reserve: int) 
         TokenBudgetContext(context_window=window, reserved_output_tokens=reserve)
 ```
 
-- [ ] **Step 2: Run the focused tests and confirm import failure**
+- [x] **Step 2: Run the focused tests and confirm import failure**
 
 Run: `python -m pytest tests/test_context.py -v`
 Expected: FAIL because `core.context` does not exist.
 
-- [ ] **Step 3: Implement protocols, estimator, configuration, and safe error metadata**
+- [x] **Step 3: Implement protocols, estimator, configuration, and safe error metadata**
 
 ```python
 class ApproximateTokenCounter:
@@ -101,12 +101,12 @@ Define runtime-checkable typing protocols and validate `TokenBudgetContext` cons
 For this task, `prepare()` returns defensive message copies when they fit and raises
 `ContextBudgetExceeded` when the complete input does not fit; trimming is Task 2.
 
-- [ ] **Step 4: Run Task 1 tests**
+- [x] **Step 4: Run Task 1 tests**
 
 Run: `python -m pytest tests/test_context.py -v`
 Expected: all Task 1 tests PASS.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add core/context.py tests/test_context.py

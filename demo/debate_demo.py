@@ -5,6 +5,8 @@ General Mini Agent Framework 多 Agent 协作示例。
   DEEPSEEK_API_KEY=your_api_key_here
 """
 
+# Experimental example: not covered by the 0.1.0 stable API.
+
 from __future__ import annotations
 
 import os
@@ -15,11 +17,10 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.llm import LLM, LLMConfig
-from core.tools import tool
-from core.agent import Agent
-from core.debate import Debate
-
+from core.agent import Agent  # noqa: E402
+from core.debate import Debate  # noqa: E402
+from core.llm import LLM, LLMConfig  # noqa: E402
+from core.tools import tool  # noqa: E402
 
 # ─── 工具定义 ────────────────────────────────────────────────
 

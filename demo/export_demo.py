@@ -6,6 +6,8 @@ General Mini Agent Framework HTML 轨迹导出示例。
     python demo/export_demo.py debate   → 生成 output/debate.html
 """
 
+# Experimental example: not covered by the 0.1.0 stable API.
+
 from __future__ import annotations
 
 import os
@@ -16,11 +18,11 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.llm import LLM, LLMConfig
-from core.tools import tool
-from core.agent import Agent
-from core.debate import Debate
-from core.trace import export_trace, export_debate
+from core.agent import Agent  # noqa: E402
+from core.debate import Debate  # noqa: E402
+from core.llm import LLM, LLMConfig  # noqa: E402
+from core.tools import tool  # noqa: E402
+from core.trace import export_debate, export_trace  # noqa: E402
 
 
 @tool(description="计算数学表达式的值")

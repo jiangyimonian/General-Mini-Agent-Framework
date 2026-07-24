@@ -94,7 +94,12 @@ body {{
     padding: 1.25rem 1.5rem;
     margin-bottom: 2rem;
 }}
-.question-box .label {{ font-size: .75rem; text-transform: uppercase; color: var(--accent); margin-bottom: .5rem; }}
+.question-box .label {{
+    font-size: .75rem;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: .5rem;
+}}
 .question-box .text {{ font-size: 1.1rem; }}
 
 /* Round */
@@ -166,7 +171,12 @@ pre.args {{
     padding: 1.5rem;
     margin: 2rem 0;
 }}
-.final-label {{ font-size: .75rem; text-transform: uppercase; color: var(--green); margin-bottom: .5rem; }}
+.final-label {{
+    font-size: .75rem;
+    text-transform: uppercase;
+    color: var(--green);
+    margin-bottom: .5rem;
+}}
 
 /* Stats */
 .stats {{
@@ -230,9 +240,12 @@ const ITERATIONS = {iterations};
 document.getElementById('question').textContent = QUESTION;
 document.getElementById('answer').textContent = ANSWER;
 document.getElementById('iterations').textContent = ITERATIONS;
-document.getElementById('total-tokens').textContent = (USAGE.total_tokens || 0).toLocaleString();
-document.getElementById('prompt-tokens').textContent = (USAGE.prompt_tokens || 0).toLocaleString();
-document.getElementById('completion-tokens').textContent = (USAGE.completion_tokens || 0).toLocaleString();
+const totalTokens = USAGE.total_tokens || 0;
+const promptTokens = USAGE.prompt_tokens || 0;
+const completionTokens = USAGE.completion_tokens || 0;
+document.getElementById('total-tokens').textContent = totalTokens.toLocaleString();
+document.getElementById('prompt-tokens').textContent = promptTokens.toLocaleString();
+document.getElementById('completion-tokens').textContent = completionTokens.toLocaleString();
 
 const roundsEl = document.getElementById('rounds');
 const rounds = new Map();
@@ -271,7 +284,10 @@ for (const [num, steps] of rounds) {{
         if (step.thought && !step.final_answer) {{
             const div = document.createElement('div');
             div.className = 'step thought';
-            div.innerHTML = `<div class="step-label">💭 思考</div><div class="step-content">${{escapeHtml(step.thought)}}</div>`;
+            div.innerHTML = (
+                `<div class="step-label">💭 思考</div>` +
+                `<div class="step-content">${{escapeHtml(step.thought)}}</div>`
+            );
             body.appendChild(div);
         }}
         if (step.tool) {{
@@ -286,13 +302,19 @@ for (const [num, steps] of rounds) {{
         if (step.observation) {{
             const div = document.createElement('div');
             div.className = 'step result';
-            div.innerHTML = `<div class="step-label">📤 结果</div><div class="step-content">${{escapeHtml(String(step.observation))}}</div>`;
+            div.innerHTML = (
+                `<div class="step-label">📤 结果</div>` +
+                `<div class="step-content">${{escapeHtml(String(step.observation))}}</div>`
+            );
             body.appendChild(div);
         }}
         if (step.final_answer) {{
             const div = document.createElement('div');
             div.className = 'step result';
-            div.innerHTML = `<div class="step-label">🎯 得出答案</div><div class="step-content">${{escapeHtml(String(step.final_answer))}}</div>`;
+            div.innerHTML = (
+                `<div class="step-label">🎯 得出答案</div>` +
+                `<div class="step-content">${{escapeHtml(String(step.final_answer))}}</div>`
+            );
             body.appendChild(div);
         }}
     }}
@@ -431,7 +453,12 @@ body {{
     padding: 1.5rem;
     margin: 2rem 0;
 }}
-.verdict-label {{ font-size: 0.75rem; color: var(--green); text-transform: uppercase; margin-bottom: 0.5rem; }}
+.verdict-label {{
+    font-size: 0.75rem;
+    color: var(--green);
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}}
 
 /* Stats */
 .stats {{
@@ -447,7 +474,9 @@ body {{
 <body>
 <div class="header"><h1>⚔️ General Mini Agent Framework</h1></div>
 <div class="question-box">
-    <div style="font-size:.7rem;color:var(--dim);text-transform:uppercase;margin-bottom:.3rem">辩论问题</div>
+    <div style="font-size:.7rem;color:var(--dim);text-transform:uppercase;margin-bottom:.3rem">
+        辩论问题
+    </div>
     <div style="font-size:1.1rem" id="question"></div>
 </div>
 <div id="rounds"></div>
@@ -456,9 +485,18 @@ body {{
     <div id="verdict"></div>
 </div>
 <div class="stats">
-    <div class="stat"><div class="stat-value" id="total-tokens">-</div><div class="stat-label">Total Tokens</div></div>
-    <div class="stat"><div class="stat-value" id="prompt-tokens">-</div><div class="stat-label">Prompt</div></div>
-    <div class="stat"><div class="stat-value" id="completion-tokens">-</div><div class="stat-label">Completion</div></div>
+    <div class="stat">
+        <div class="stat-value" id="total-tokens">-</div>
+        <div class="stat-label">Total Tokens</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value" id="prompt-tokens">-</div>
+        <div class="stat-label">Prompt</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value" id="completion-tokens">-</div>
+        <div class="stat-label">Completion</div>
+    </div>
 </div>
 <script>
 const ROUNDS = {rounds_data};
@@ -468,20 +506,29 @@ const USAGE = {usage_json};
 
 document.getElementById('question').textContent = QUESTION;
 document.getElementById('verdict').textContent = VERDICT;
-document.getElementById('total-tokens').textContent = (USAGE.total_tokens || 0).toLocaleString();
-document.getElementById('prompt-tokens').textContent = (USAGE.prompt_tokens || 0).toLocaleString();
-document.getElementById('completion-tokens').textContent = (USAGE.completion_tokens || 0).toLocaleString();
+const totalTokens = USAGE.total_tokens || 0;
+const promptTokens = USAGE.prompt_tokens || 0;
+const completionTokens = USAGE.completion_tokens || 0;
+document.getElementById('total-tokens').textContent = totalTokens.toLocaleString();
+document.getElementById('prompt-tokens').textContent = promptTokens.toLocaleString();
+document.getElementById('completion-tokens').textContent = completionTokens.toLocaleString();
 
 const roundsEl = document.getElementById('rounds');
 for (const round of ROUNDS) {{
     const div = document.createElement('div');
     div.className = 'round';
-    div.innerHTML = `<div class="round-title">第 ${{round.round + 1}} 轮</div><div class="role-cards"></div>`;
+    div.innerHTML = (
+        `<div class="round-title">第 ${{round.round + 1}} 轮</div>` +
+        '<div class="role-cards"></div>'
+    );
     const cards = div.querySelector('.role-cards');
     for (const resp of (round.responses || [])) {{
         const card = document.createElement('div');
         card.className = `role-card ${{resp.role}}`;
-        card.innerHTML = `<div class="role-name">${{resp.role}}</div><div class="role-content">${{resp.content}}</div>`;
+        card.innerHTML = (
+            `<div class="role-name">${{resp.role}}</div>` +
+            `<div class="role-content">${{resp.content}}</div>`
+        );
         cards.appendChild(card);
     }}
     roundsEl.appendChild(div);

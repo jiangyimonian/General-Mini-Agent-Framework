@@ -3,24 +3,40 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Literal, NotRequired, TypedDict
 
-from .llm import LLM, LLMResponse
+from .llm import ChatModel, ModelRequestError
 from .tools import Tool, ToolRegistry
-from .memory import SlidingWindowMemory
-
 
 # ─── 结果类型 ───────────────────────────────────────────────
+
+
+AgentStopReason = Literal["completed", "max_iterations", "model_error"]
+
+
+class TraceEvent(TypedDict):
+    type: str
+    iteration: int
+    thought: NotRequired[str]
+    tool: NotRequired[str]
+    arguments: NotRequired[dict[str, Any]]
+    observation: NotRequired[str]
+    error_code: NotRequired[str]
+    final_answer: NotRequired[str]
+    message: NotRequired[str]
 
 
 @dataclass
 class AgentResult:
     """Agent 执行结果"""
     content: str
-    trace: list[dict] = field(default_factory=list)
+    trace: list[TraceEvent] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     iterations: int = 0
+    stop_reason: AgentStopReason = "completed"
+    error: str | None = None
 
 
 # ─── Agent 配置 ──────────────────────────────────────────────
@@ -64,26 +80,19 @@ class Agent:
 
     def __init__(
         self,
-        llm: LLM,
-        tools: list[Tool] | None = None,
+        llm: ChatModel,
+        tools: list[Tool | Callable[..., Any]] | None = None,
         system_prompt: str | None = None,
         max_iterations: int = 10,
-        memory: SlidingWindowMemory | None = None,
+        memory: Any | None = None,
         hooks: dict[str, Callable] | None = None,
     ):
         self.llm = llm
         self.max_iterations = max_iterations
-        self.memory = memory or SlidingWindowMemory()
+        self.memory = memory
 
-        # 注册工具
-        self.tools = tools or []
-        for t in self.tools:
-            if isinstance(t, Tool):
-                ToolRegistry.register(t.func, name=t.name, description=t.description)
-            elif callable(t):
-                # 兼容 @tool 装饰过的函数
-                name = getattr(t, '_tool_name', None) or t.__name__
-                ToolRegistry.register(t, name=name)
+        self.registry = ToolRegistry(tools or [])
+        self.tools = self.registry.list()
 
         # 系统提示词
         tool_descs = self._format_tool_descriptions()
@@ -96,42 +105,55 @@ class Agent:
 
     def run(self, user_input: str) -> AgentResult:
         """ReAct 循环主入口"""
-        from .tools import ToolRegistry
-
-        trace: list[dict] = []
+        trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
 
         # 构建初始消息
         messages = [{"role": "system", "content": self.system_prompt}]
 
         # 加载短期记忆
-        messages.extend(self.memory.get_context())
+        messages.extend(self._memory_context())
 
         # 加入用户输入
         messages.append({"role": "user", "content": user_input})
 
         # ── ReAct 循环 ────────────────────────────────
         for iteration in range(self.max_iterations):
-            response = self.llm.chat(messages, tools=ToolRegistry.schemas())
+            try:
+                response = self.llm.chat(messages, tools=self.registry.schemas())
+            except ModelRequestError:
+                trace.append({
+                    "type": "model_error",
+                    "iteration": iteration,
+                    "message": "model request failed",
+                })
+                return AgentResult(
+                    content="",
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration,
+                    stop_reason="model_error",
+                    error="model request failed",
+                )
 
             self._accumulate_usage(total_usage, response.usage)
 
             # 情况 1：LLM 要求调用工具
             if response.tool_calls:
                 for tc in response.tool_calls:
-                    tool = ToolRegistry.get(tc.name)
-                    if not tool:
-                        obs = f"错误: 未找到工具 '{tc.name}'"
-                    else:
-                        obs = tool.execute(**tc.arguments)
-
-                    trace.append({
+                    execution = self.registry.execute(tc.name, tc.arguments)
+                    obs = execution.content
+                    trace_event: TraceEvent = {
+                        "type": "tool_call",
                         "iteration": iteration,
                         "thought": response.content or "",
                         "tool": tc.name,
                         "arguments": tc.arguments,
                         "observation": obs,
-                    })
+                    }
+                    if execution.error_code is not None:
+                        trace_event["error_code"] = execution.error_code
+                    trace.append(trace_event)
 
                     self._call_hook("on_tool_call", trace[-1])
 
@@ -158,8 +180,15 @@ class Agent:
             # 情况 2：文本回复（无 tool call）→ 最终答案，直接结束
             if response.content and not response.tool_calls:
                 content = response.content
-                clean_content = content.replace("[FINAL]", "").replace("Final Answer:", "").replace("最终答案：", "").replace("最终答案:", "").strip()
+                clean_content = (
+                    content.replace("[FINAL]", "")
+                    .replace("Final Answer:", "")
+                    .replace("最终答案：", "")
+                    .replace("最终答案:", "")
+                    .strip()
+                )
                 trace.append({
+                    "type": "final",
                     "iteration": iteration,
                     "thought": content,
                     "final_answer": clean_content,
@@ -181,21 +210,25 @@ class Agent:
                 continue
 
         # 超时返回
+        trace.append({
+            "type": "max_iterations",
+            "iteration": self.max_iterations,
+            "message": "maximum iterations reached",
+        })
         return AgentResult(
             content="（已达最大迭代次数，未能得出最终答案）",
             trace=trace,
             usage=total_usage,
             iterations=self.max_iterations,
+            stop_reason="max_iterations",
         )
 
     def run_stream(self, user_input: str):
         """ReAct 循环流式版 — 逐事件 yield，供上层实时消费"""
-        from .tools import ToolRegistry
-
-        trace: list[dict] = []
+        trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
         messages = [{"role": "system", "content": self.system_prompt}]
-        messages.extend(self.memory.get_context())
+        messages.extend(self._memory_context())
         messages.append({"role": "user", "content": user_input})
 
         for iteration in range(self.max_iterations):
@@ -206,7 +239,7 @@ class Agent:
             tool_calls_buffer: dict[int, dict] = {}  # index → 累积的 tool_call 片段
 
             for chunk in self.llm.chat_stream(
-                messages, tools=ToolRegistry.schemas()
+                messages, tools=self.registry.schemas()
             ):
                 if chunk.content:
                     thought_parts.append(chunk.content)
@@ -246,11 +279,8 @@ class Agent:
                     except (json.JSONDecodeError, KeyError):
                         arguments = {}
 
-                    tool = ToolRegistry.get(tc_data["name"])
-                    if not tool:
-                        obs = f"错误: 未找到工具 '{tc_data['name']}'"
-                    else:
-                        obs = tool.execute(**arguments)
+                    execution = self.registry.execute(tc_data["name"], arguments)
+                    obs = execution.content
 
                     yield {
                         "type": "tool_call",
@@ -259,13 +289,17 @@ class Agent:
                     }
                     yield {"type": "observation", "text": obs}
 
-                    trace.append({
+                    trace_event: TraceEvent = {
+                        "type": "tool_call",
                         "iteration": iteration,
                         "thought": thought,
                         "tool": tc_data["name"],
                         "arguments": arguments,
                         "observation": obs,
-                    })
+                    }
+                    if execution.error_code is not None:
+                        trace_event["error_code"] = execution.error_code
+                    trace.append(trace_event)
                     self._call_hook("on_tool_call", trace[-1])
 
                     messages.append({
@@ -289,9 +323,16 @@ class Agent:
 
             # 情况 2：文本回复（无 tool call）→ 最终答案，直接结束
             if thought:
-                clean = thought.replace("[FINAL]", "").replace("Final Answer:", "").replace("最终答案：", "").replace("最终答案:", "").strip()
+                clean = (
+                    thought.replace("[FINAL]", "")
+                    .replace("Final Answer:", "")
+                    .replace("最终答案：", "")
+                    .replace("最终答案:", "")
+                    .strip()
+                )
                 yield {"type": "final_answer", "text": clean}
                 trace.append({
+                    "type": "final_answer",
                     "iteration": iteration,
                     "thought": thought,
                     "final_answer": clean,
@@ -318,6 +359,7 @@ class Agent:
             "trace": trace,
             "usage": total_usage,
             "iterations": self.max_iterations,
+            "stop_reason": "max_iterations",
         }
 
     # ── 内部方法 ────────────────────────────────────────
@@ -336,6 +378,12 @@ class Agent:
                 # 兼容原始函数（有 name 属性）
                 lines.append(f"- {getattr(t, '__name__', str(t))}(...): 可用工具")
         return "\n".join(lines)
+
+    def _memory_context(self) -> list[dict[str, Any]]:
+        get_context = getattr(self.memory, "get_context", None)
+        if callable(get_context):
+            return get_context()
+        return []
 
     def _accumulate_usage(self, total: dict, current: dict) -> None:
         for key, val in current.items():

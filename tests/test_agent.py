@@ -1,11 +1,12 @@
 """测试 Agent ReAct 循环"""
 
-from unittest.mock import Mock, patch
-import pytest
+from unittest.mock import Mock
 
-from core.llm import LLMResponse, ToolCall
-from core.tools import tool, ToolRegistry
-from core.agent import Agent, AgentResult
+from conftest import ScriptedChatModel
+
+from core.agent import Agent
+from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall
+from core.tools import Tool, tool
 
 
 def make_mock_llm(responses: list[LLMResponse]):
@@ -16,9 +17,6 @@ def make_mock_llm(responses: list[LLMResponse]):
 
 
 class TestAgentBasic:
-    def setup_method(self):
-        ToolRegistry.clear()
-
     def test_direct_answer(self):
         """Agent 直接回答，不需要工具"""
         @tool
@@ -33,6 +31,19 @@ class TestAgentBasic:
 
         assert result.content == "你好！"
         assert result.iterations == 1
+        assert result.trace[-1]["type"] == "final"
+
+    def test_accepts_scripted_chat_model_with_completed_result(self):
+        model = ScriptedChatModel([
+            LLMResponse(content="[FINAL] complete", tool_calls=None, usage={}),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("test")
+
+        assert result.content == "complete"
+        assert result.stop_reason == "completed"
+        assert result.error is None
+        assert result.trace[-1]["type"] == "final"
 
     def test_single_tool_call(self):
         """Agent 调用一次工具后得出答案"""
@@ -65,6 +76,33 @@ class TestAgentBasic:
         assert len(result.trace) == 2
         assert result.trace[0]["tool"] == "add"
         assert result.trace[0]["observation"] == "8"
+
+    def test_tool_call_trace_entry_has_required_type(self):
+        @tool
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        mock_llm = make_mock_llm([
+            LLMResponse(
+                content="计算",
+                tool_calls=[ToolCall(id="call_1", name="add", arguments={"a": 1, "b": 2})],
+                usage={},
+            ),
+            LLMResponse(content="[FINAL] 3", tool_calls=None, usage={}),
+        ])
+
+        result = Agent(llm=mock_llm, tools=[add]).run("1+2=?")
+
+        assert result.trace[0]["type"] == "tool_call"
+
+    def test_final_trace_entry_has_required_type(self):
+        mock_llm = make_mock_llm([
+            LLMResponse(content="[FINAL] 完成", tool_calls=None, usage={}),
+        ])
+
+        result = Agent(llm=mock_llm, tools=[]).run("测试")
+
+        assert result.trace[0]["type"] == "final"
 
     def test_multi_tool_call_chain(self):
         """Agent 连续调多个工具（链式推理）"""
@@ -109,7 +147,8 @@ class TestAgentBasic:
         agent = Agent(llm=mock_llm, tools=[], max_iterations=5)
         result = agent.run("测试")
 
-        assert "未找到工具" in result.trace[0]["observation"]
+        assert "nonexistent" in result.trace[0]["observation"]
+        assert result.trace[0]["error_code"] == "unknown_tool"
         assert result.iterations == 2
 
     def test_max_iterations_exceeded(self):
@@ -130,6 +169,44 @@ class TestAgentBasic:
         result = agent.run("循环测试")
 
         assert "已达最大迭代次数" in result.content
+        assert result.stop_reason == "max_iterations"
+        assert result.trace[-1] == {
+            "type": "max_iterations",
+            "iteration": 3,
+            "message": "maximum iterations reached",
+        }
+
+    def test_run_stream_trace_entries_have_required_types(self):
+        @tool
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        mock_llm = Mock()
+        mock_llm.chat_stream.side_effect = [
+            [StreamChunk(
+                tool_call_id="call_1",
+                tool_name="add",
+                tool_args='{"a": 1, "b": 2}',
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(content="[FINAL] 3", finish_reason="stop")],
+        ]
+
+        events = list(Agent(llm=mock_llm, tools=[add]).run_stream("1+2=?"))
+
+        assert [event["type"] for event in events[-1]["trace"]] == [
+            "tool_call",
+            "final_answer",
+        ]
+
+    def test_run_stream_max_iterations_done_event_has_stop_reason(self):
+        mock_llm = Mock()
+        mock_llm.chat_stream.return_value = []
+
+        events = list(Agent(llm=mock_llm, tools=[], max_iterations=2).run_stream("测试"))
+
+        assert events[-1]["type"] == "done"
+        assert events[-1]["stop_reason"] == "max_iterations"
 
     def test_empty_response(self):
         """LLM 返回空响应"""
@@ -162,10 +239,116 @@ class TestAgentBasic:
         assert result.usage["completion_tokens"] == 30
 
 
-class TestAgentHooks:
-    def setup_method(self):
-        ToolRegistry.clear()
+def test_unknown_tool_is_recorded_as_a_structured_error() -> None:
+    model = ScriptedChatModel([
+        LLMResponse(content="try", tool_calls=[ToolCall("c1", "missing", {})]),
+        LLMResponse(content="done", tool_calls=None),
+    ])
 
+    result = Agent(llm=model, tools=[]).run("question")
+
+    assert result.stop_reason == "completed"
+    assert result.trace[0]["type"] == "tool_call"
+    assert result.trace[0]["error_code"] == "unknown_tool"
+    assert "unknown tool: missing" in result.trace[0]["observation"]
+
+
+def test_tool_exception_is_recorded_and_model_can_finish() -> None:
+    def explode() -> str:
+        raise RuntimeError("boom")
+
+    model = ScriptedChatModel([
+        LLMResponse(content="call", tool_calls=[ToolCall("c1", "explode", {})]),
+        LLMResponse(content="recovered", tool_calls=None),
+    ])
+
+    result = Agent(llm=model, tools=[Tool(explode)]).run("question")
+
+    assert result.content == "recovered"
+    assert result.trace[0]["error_code"] == "execution_failed"
+
+
+def test_model_error_returns_trace_and_does_not_expose_secret() -> None:
+    class FailingModel:
+        def chat(self, messages, *, tools=None):
+            raise ModelRequestError(
+                "request failed Authorization: Bearer sk-secret",
+                status_code=503,
+                endpoint="/chat/completions",
+            )
+
+    result = Agent(llm=FailingModel(), tools=[]).run("question")
+
+    assert result.stop_reason == "model_error"
+    assert result.error == "model request failed"
+    assert result.trace[-1]["type"] == "model_error"
+    assert "sk-secret" not in str(result.trace)
+
+
+def test_second_model_call_receives_tool_result() -> None:
+    model = ScriptedChatModel([
+        LLMResponse(
+            content="use add",
+            tool_calls=[ToolCall("c1", "add", {"a": 2, "b": 3})],
+        ),
+        LLMResponse(content="5", tool_calls=None),
+    ])
+
+    result = Agent(
+        llm=model,
+        tools=[Tool(lambda a, b: a + b, name="add")],
+    ).run("2+3")
+
+    assert result.content == "5"
+    assert model.calls[1][0][-1] == {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": "5",
+    }
+
+
+def test_agent_config_is_exported_from_core() -> None:
+    from core import AgentConfig
+
+    assert AgentConfig().max_iterations == 10
+
+
+def test_run_includes_supplied_legacy_memory_context() -> None:
+    class LegacyMemory:
+        def get_context(self):
+            return [{"role": "assistant", "content": "legacy context"}]
+
+    model = ScriptedChatModel([
+        LLMResponse(content="done", tool_calls=None),
+    ])
+
+    Agent(llm=model, tools=[], memory=LegacyMemory()).run("question")
+
+    assert model.calls[0][0][1:] == [
+        {"role": "assistant", "content": "legacy context"},
+        {"role": "user", "content": "question"},
+    ]
+
+
+def test_run_stream_includes_supplied_legacy_memory_context() -> None:
+    class LegacyMemory:
+        def get_context(self):
+            return [{"role": "assistant", "content": "legacy context"}]
+
+    model = Mock()
+    model.chat_stream.return_value = [
+        StreamChunk(content="done", finish_reason="stop"),
+    ]
+
+    list(Agent(llm=model, tools=[], memory=LegacyMemory()).run_stream("question"))
+
+    assert model.chat_stream.call_args.args[0][1:] == [
+        {"role": "assistant", "content": "legacy context"},
+        {"role": "user", "content": "question"},
+    ]
+
+
+class TestAgentHooks:
     def test_on_tool_call_hook(self):
         """hooks.on_tool_call 应被调用"""
         @tool
@@ -204,3 +387,103 @@ class TestAgentHooks:
 
         assert len(hook_data) == 1
         assert hook_data[0]["final_answer"] == "完成"
+
+
+class TestAgentToolIsolation:
+    def test_agents_send_only_their_own_tool_schemas(self):
+        @tool
+        def first_only() -> str:
+            return "first"
+
+        @tool
+        def second_only() -> str:
+            return "second"
+
+        first_model = ScriptedChatModel([
+            LLMResponse(content="[FINAL] first", tool_calls=None, usage={}),
+        ])
+        second_model = ScriptedChatModel([
+            LLMResponse(content="[FINAL] second", tool_calls=None, usage={}),
+        ])
+        first_agent = Agent(llm=first_model, tools=[first_only])
+        second_agent = Agent(llm=second_model, tools=[second_only])
+
+        first_agent.run("one")
+        second_agent.run("two")
+
+        first_names = [
+            schema["function"]["name"] for schema in first_model.calls[0][1]
+        ]
+        second_names = [
+            schema["function"]["name"] for schema in second_model.calls[0][1]
+        ]
+        assert first_names == ["first_only"]
+        assert second_names == ["second_only"]
+
+    def test_agent_cannot_execute_tool_owned_by_another_agent(self):
+        calls = 0
+
+        def private_tool() -> str:
+            nonlocal calls
+            calls += 1
+            return "private result"
+
+        owner = Agent(
+            llm=ScriptedChatModel([
+                LLMResponse(content="[FINAL] owner", tool_calls=None, usage={}),
+            ]),
+            tools=[private_tool],
+        )
+        outsider_model = ScriptedChatModel([
+            LLMResponse(
+                content="try private",
+                tool_calls=[ToolCall(id="call_1", name="private_tool", arguments={})],
+                usage={},
+            ),
+            LLMResponse(content="[FINAL] done", tool_calls=None, usage={}),
+        ])
+        outsider = Agent(llm=outsider_model, tools=[])
+
+        owner.run("owner")
+        result = outsider.run("outsider")
+
+        assert calls == 0
+        assert result.trace[0]["error_code"] == "unknown_tool"
+
+    def test_streaming_agents_expose_only_local_tools_and_reject_leaked_tools(self):
+        @tool
+        def first_only() -> str:
+            return "first"
+
+        @tool
+        def second_only() -> str:
+            return "second"
+
+        first_model = Mock()
+        first_model.chat_stream.side_effect = [
+            [StreamChunk(content="[FINAL] first", finish_reason="stop")],
+        ]
+        second_model = Mock()
+        second_model.chat_stream.side_effect = [
+            [StreamChunk(
+                tool_call_id="call_1",
+                tool_name="first_only",
+                tool_args="{}",
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(content="[FINAL] second", finish_reason="stop")],
+        ]
+
+        first_agent = Agent(llm=first_model, tools=[first_only])
+        second_agent = Agent(llm=second_model, tools=[second_only])
+
+        first_events = list(first_agent.run_stream("one"))
+        second_events = list(second_agent.run_stream("two"))
+
+        first_schemas = first_model.chat_stream.call_args_list[0].kwargs["tools"]
+        second_schemas = second_model.chat_stream.call_args_list[0].kwargs["tools"]
+        assert [schema["function"]["name"] for schema in first_schemas] == ["first_only"]
+        assert [schema["function"]["name"] for schema in second_schemas] == ["second_only"]
+        assert "first_only" not in [schema["function"]["name"] for schema in second_schemas]
+        assert second_events[-1]["trace"][0]["error_code"] == "unknown_tool"
+        assert first_events[-1]["content"] == "first"

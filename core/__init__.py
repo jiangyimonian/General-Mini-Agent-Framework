@@ -1,11 +1,27 @@
-from .llm import LLM, LLMConfig, LLMResponse, StreamChunk
-from .tools import tool, Tool, ToolRegistry
-from .memory import SlidingWindowMemory, LongTermMemory
-from .agent import Agent, AgentResult
+from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, TraceEvent
+from .llm import LLM, ChatModel, LLMConfig, LLMResponse, ModelRequestError
+from .tools import Tool, ToolRegistry, tool
+
+# isort: split
+# Experimental compatibility exports; not part of the 0.1.0 stable API.
+from .llm import StreamChunk
+from .memory import LongTermMemory, SlidingWindowMemory
 
 __all__ = [
-    "LLM", "LLMConfig", "LLMResponse", "StreamChunk",
-    "tool", "Tool", "ToolRegistry",
-    "SlidingWindowMemory", "LongTermMemory",
-    "Agent", "AgentResult",
+    "ChatModel",
+    "LLM",
+    "LLMConfig",
+    "LLMResponse",
+    "ModelRequestError",
+    "tool",
+    "Tool",
+    "ToolRegistry",
+    "Agent",
+    "AgentConfig",
+    "AgentResult",
+    "AgentStopReason",
+    "TraceEvent",
+    "StreamChunk",
+    "SlidingWindowMemory",
+    "LongTermMemory",
 ]

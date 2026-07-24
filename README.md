@@ -1,23 +1,28 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.1.0`
-稳定支持 OpenAI 兼容模型上的单 Agent 同步工具调用，并提供实例隔离和结构化运行轨迹。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.2.0`
+稳定支持 OpenAI 兼容模型上的单 Agent 同步工具调用和同步生成器式流式执行，并提供
+实例隔离、结构化运行轨迹和明确的终止状态。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.1.0 稳定能力
+## 0.2.0 稳定能力
 
 - OpenAI 兼容 Chat Completions 客户端
 - Python 函数到 JSON Schema 的工具定义
 - 单 Agent 同步工具调用与 ReAct 循环
+- `LLM.chat_stream()` 的 OpenAI 兼容 SSE 解析
+- `Agent.run_stream()` 的同步生成器事件接口
+- 多个流式工具调用按 index 聚合并顺序执行
+- 流式请求错误、协议错误、usage 和结束原因分类
 - Agent 实例级工具隔离
 - 结构化执行结果、轨迹和明确的停止原因
 - 模型请求超时、有限重试和脱敏错误
 
 ## 实验性模块
 
-流式、多 Agent、记忆和 HTML 轨迹导出不属于 0.1.0 稳定 API。它们保留在仓库中用于实验，
+记忆、多 Agent 和 HTML 轨迹导出仍为实验性能力。它们保留在仓库中用于后续稳定化，
 不保证接口或行为兼容性。
 
 ## 项目结构
@@ -31,8 +36,8 @@ core/
 ├── debate.py         # 实验性多 Agent 协作
 └── trace.py          # 实验性 HTML 轨迹渲染
 demo/
-├── reasoning.py      # 0.1.0 同步示例
-├── reasoning_stream.py
+├── reasoning.py      # 同步示例
+├── reasoning_stream.py # 0.2.0 稳定流式示例
 ├── chat.py
 ├── debate_demo.py
 └── export_demo.py
@@ -95,27 +100,32 @@ print(result.content)
 
 ```bash
 python demo/reasoning.py
+python demo/reasoning_stream.py
 ```
 
 该示例需要 `.env` 中存在有效模型密钥，不属于默认离线测试。
 
 ## 稳定 API
 
-`0.1.0` 的稳定公共入口由 `core` 包导出：
+`0.2.0` 的稳定公共入口由 `core` 包导出：
 
-- 模型：`ChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、`ModelRequestError`
+- 模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
+  `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
 - 工具：`tool`、`Tool`、`ToolRegistry`
-- Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`
+- Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
 
-`StreamChunk`、`SlidingWindowMemory` 和 `LongTermMemory` 目前仅保留兼容导出，不属于
-`0.1.0` 稳定 API。`core.debate` 与 `core.trace` 同样属于实验性模块。
+`StreamEvent` 包含 `iteration_start`、`thought_chunk`、`tool_call`、`observation`、
+`final_answer`、`model_error` 和 `done` 七种事件。`done.stop_reason` 为 `completed`、
+`max_iterations`、`model_error` 或 `incomplete`。
+
+`SlidingWindowMemory` 和 `LongTermMemory` 目前仅保留兼容导出，不属于稳定 API。
+`core.debate` 与 `core.trace` 同样属于实验性模块。
 
 ## 实验性示例
 
 以下入口可以用于试验现有实现，但其接口和行为可能在后续版本调整：
 
 ```bash
-python demo/reasoning_stream.py
 python demo/chat.py
 python demo/debate_demo.py
 python demo/export_demo.py
@@ -134,5 +144,5 @@ ruff check core tests demo
 
 ## 开发文档
 
-- [PLAN.md](PLAN.md)：`0.1.0` 架构和稳定边界
+- [PLAN.md](PLAN.md)：`0.2.0` 架构和稳定边界
 - [ROADMAP.md](ROADMAP.md)：后续版本路线

@@ -1093,7 +1093,7 @@ Run `git diff --check` and report usage totals, hook counts, trace fields, and i
 - Consumes: all stable stream APIs and behavior from Tasks 1-5.
 - Produces: package version `0.2.0`, accurate stable exports, a supported stream demo, and documentation that names memory as the `0.3` focus.
 
-- [ ] **Step 1: Write failing release contract tests**
+- [x] **Step 1: Write failing release contract tests**
 
 Update metadata and documentation tests:
 
@@ -1126,7 +1126,7 @@ def test_core_exports_stable_streaming_contracts() -> None:
     assert ToolCallDelta is not None
 ```
 
-- [ ] **Step 2: Run release tests to verify RED**
+- [x] **Step 2: Run release tests to verify RED**
 
 Run:
 
@@ -1136,7 +1136,7 @@ python -m pytest tests/test_package_metadata.py tests/test_docs_contract.py -v
 
 Expected: failures show version `0.1.0` and documentation that still labels streaming experimental.
 
-- [ ] **Step 3: Update package metadata and stable exports**
+- [x] **Step 3: Update package metadata and stable exports**
 
 Set:
 
@@ -1156,7 +1156,7 @@ Ensure `core.__all__` contains these stable stream names alongside the `0.1.0` A
 
 Leave only `SlidingWindowMemory` and `LongTermMemory` under the experimental compatibility export comment.
 
-- [ ] **Step 4: Promote the streaming demo**
+- [x] **Step 4: Promote the streaming demo**
 
 Remove the `0.1.0` experimental warning from `demo/reasoning_stream.py`. Handle all seven stable event types, including terminal errors and incomplete responses:
 
@@ -1173,7 +1173,7 @@ elif etype == "done":
 
 Read event fields directly according to `StreamEvent`; do not add provider-specific branches or online checks.
 
-- [ ] **Step 5: Update current-state documentation**
+- [x] **Step 5: Update current-state documentation**
 
 In `README.md`:
 
@@ -1186,7 +1186,7 @@ In `README.md`:
 
 In `PLAN.md`, describe the separate synchronous and streaming control loops plus their bounded shared helpers. In `ROADMAP.md`, remove completed streaming work and make `0.3` memory semantics and tests the next release target.
 
-- [ ] **Step 6: Run release tests and required verification**
+- [x] **Step 6: Run release tests and required verification**
 
 Run exactly:
 
@@ -1199,7 +1199,7 @@ git diff --check
 
 Expected: pytest reports zero failures, `compileall` has no output, Ruff reports `All checks passed!`, and `git diff --check` reports no whitespace errors.
 
-- [ ] **Step 7: Review the complete release diff**
+- [x] **Step 7: Review the complete release diff**
 
 Run:
 

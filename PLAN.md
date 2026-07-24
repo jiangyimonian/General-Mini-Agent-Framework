@@ -2,8 +2,8 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.1.0`
-优先稳定单 Agent 同步工具调用，后续版本再逐步稳定流式、记忆和多 Agent 能力。
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.2.0`
+稳定单 Agent 同步工具调用和同步生成器式流式执行，后续版本再逐步稳定记忆和多 Agent 能力。
 
 ## 设计原则
 
@@ -14,7 +14,7 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.1.0 稳定边界
+## 0.2.0 稳定边界
 
 ### `core/llm.py`
 
@@ -22,11 +22,12 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 
 - 配置模型地址、密钥、模型名称、超时和重试
 - 发送同步 Chat Completions 请求
+- 解析 OpenAI 兼容 SSE 流、usage-only payload 和多个工具调用片段
 - 解析文本、工具调用和 Token 用量
-- 将服务错误转换为脱敏的 `ModelRequestError`
+- 将请求和流式协议错误转换为脱敏的 `ModelRequestError`
 
-模型客户端不执行工具，也不管理 Agent 状态。流式接口目前保留，但不属于 `0.1.0`
-稳定契约。
+模型客户端不执行工具，也不管理 Agent 状态。`ChatModel` 保持同步调用契约，
+`StreamingChatModel` 额外定义 `chat_stream()`。
 
 ### `core/tools.py`
 
@@ -41,7 +42,7 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 
 ### `core/agent.py`
 
-负责单 Agent 同步执行循环：
+负责单 Agent 同步和流式执行循环：
 
 ```text
 构建请求上下文
@@ -51,30 +52,32 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
   -> 返回 AgentResult
 ```
 
-稳定行为包括实例级工具隔离、最大迭代限制、明确停止原因、结构化错误和同步 hook。
-流式入口存在于当前代码中，但将在后续版本单独稳定。
+`Agent.run()` 保留 `0.1.0` 同步控制循环；`Agent.run_stream()` 使用独立流式控制循环。
+两条路径只共享工具注册执行、usage 累计、trace 和 hook 等有边界的 helper，不互相重写。
+
+流式路径稳定支持七种 `StreamEvent`、四种停止原因、按 index 聚合的多工具调用、
+非法参数修正、协议错误终止和每次请求一次的 usage 累计。
 
 ## 实验性模块
 
-以下能力保留用于实验，不属于 `0.1.0` 稳定 API：
+以下能力保留用于实验，不属于 `0.2.0` 稳定 API：
 
 - `core/memory.py`：滑动窗口和 ChromaDB 长期记忆
 - `core/debate.py`：多 Agent 角色协作
 - `core/trace.py`：HTML 轨迹渲染
-- `Agent.run_stream()` 与 `LLM.chat_stream()`：流式执行路径
 
 实验模块可以修改接口和行为。稳定化顺序见 [ROADMAP.md](ROADMAP.md)。
 
 ## 公共接口
 
-`core/__init__.py` 中的 `0.1.0` 稳定导出为：
+`core/__init__.py` 中的 `0.2.0` 稳定导出为：
 
-- `ChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、`ModelRequestError`
+- `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
+  `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
 - `tool`、`Tool`、`ToolRegistry`
-- `Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`
+- `Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
 
-`StreamChunk`、`SlidingWindowMemory` 和 `LongTermMemory` 仅为兼容现有调用而继续导出，
-不构成 `0.1.0` 稳定 API。
+`SlidingWindowMemory` 和 `LongTermMemory` 仅为兼容现有调用而继续导出，不构成稳定 API。
 
 ## 错误处理
 

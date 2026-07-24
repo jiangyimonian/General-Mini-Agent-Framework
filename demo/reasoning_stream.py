@@ -5,8 +5,6 @@ General Mini Agent Framework 流式推理示例。
   DEEPSEEK_API_KEY=your_api_key_here
 """
 
-# Experimental example: not covered by the 0.1.0 stable API.
-
 from __future__ import annotations
 
 import os
@@ -112,7 +110,18 @@ def main():
         elif etype == "final_answer":
             print(f"\n  {C['final']}✅ {event['text']}{C['reset']}")
 
+        elif etype == "model_error":
+            print(
+                f"\n  模型错误 [{event['error_code']}]: "
+                f"{event['error']}"
+            )
+
         elif etype == "done":
+            if event["stop_reason"] == "incomplete":
+                reason = event.get("finish_reason") or "缺少结束原因"
+                print(f"\n  响应未完成: {reason}")
+            elif event["stop_reason"] == "model_error":
+                print("\n  模型请求未完成。")
             elapsed = time.time() - start_time
             usage = event.get("usage", {})
             print(f"\n\n{C['dim']}══════════════════════{C['reset']}")

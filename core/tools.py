@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
+from types import UnionType
 from typing import Any, Union, get_args, get_origin
 
 TYPE_MAP = {
@@ -133,7 +134,7 @@ class Tool:
         origin = get_origin(tp)
         args = get_args(tp)
 
-        if origin is Union and type(None) in args:
+        if origin in (Union, UnionType) and type(None) in args:
             non_none = [arg for arg in args if arg is not type(None)]
             if non_none:
                 schema = self._type_to_schema(non_none[0])

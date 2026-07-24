@@ -18,13 +18,11 @@ import sys
 import time
 from datetime import datetime
 
-from dotenv import load_dotenv
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from core.agent import Agent  # noqa: E402
 from core.llm import LLM, LLMConfig  # noqa: E402
+from core.memory import SlidingWindowMemory  # noqa: E402
 from core.tools import tool  # noqa: E402
 from core.trace import export_trace  # noqa: E402
 
@@ -81,7 +79,24 @@ C = {
 # ─── 主逻辑 ────────────────────────────────────────────────
 
 
+def record_exchange(
+    memory: SlidingWindowMemory,
+    user_input: str,
+    assistant_content: str,
+) -> None:
+    memory.add("user", user_input)
+    memory.add("assistant", assistant_content)
+
+
+def clear_context(memory: SlidingWindowMemory) -> None:
+    memory.clear()
+
+
 def main():
+    from dotenv import load_dotenv
+
+    load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
     api_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not api_key:
         print("错误: 请设置 DEEPSEEK_API_KEY")
@@ -94,7 +109,13 @@ def main():
         temperature=0.0,
     )
 
-    agent = Agent(llm=LLM(config), tools=[calculate, search, get_date], max_iterations=10)
+    memory = SlidingWindowMemory(window_size=20)
+    agent = Agent(
+        llm=LLM(config),
+        tools=[calculate, search, get_date],
+        max_iterations=10,
+        memory=memory,
+    )
     last_result = None
 
     print(
@@ -116,7 +137,7 @@ def main():
         if user_input == "/exit":
             break
         elif user_input == "/clear":
-            agent.memory.clear()
+            clear_context(memory)
             print(f"{C['dim']}  上下文已清空{C['reset']}")
             continue
         elif user_input == "/trace" and last_result:
@@ -180,6 +201,7 @@ def main():
                 elapsed = time.time() - start
                 usage = event.get("usage", {})
                 trace = event.get("trace", [])
+                record_exchange(memory, user_input, event["content"])
 
                 # 按轮次分组汇总
                 print(f"\n  {C['dim']}{'─' * 40}{C['reset']}")

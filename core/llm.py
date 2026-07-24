@@ -83,10 +83,6 @@ class StreamChunk:
     tool_calls: list[ToolCallDelta] = field(default_factory=list)
     finish_reason: str = ""
     usage: dict[str, int] = field(default_factory=dict)
-    # Legacy fields keep current Agent consumers compatible during the 0.2 migration.
-    tool_call_id: str = ""
-    tool_name: str = ""
-    tool_args: str = ""
 
 
 @runtime_checkable
@@ -280,15 +276,11 @@ class LLM:
                 )
             )
 
-        first_call = tool_calls[0] if tool_calls else None
         return StreamChunk(
             content=delta.get("content") or "",
             tool_calls=tool_calls,
             finish_reason=choice.get("finish_reason") or "",
             usage=usage,
-            tool_call_id=first_call.id if first_call else "",
-            tool_name=first_call.name if first_call else "",
-            tool_args=first_call.arguments if first_call else "",
         )
 
     def _parse_response(self, data: dict) -> LLMResponse:

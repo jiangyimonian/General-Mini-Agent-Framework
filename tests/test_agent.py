@@ -6,7 +6,7 @@ import pytest
 from conftest import ScriptedChatModel, ScriptedStreamingChatModel
 
 from core.agent import Agent
-from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall
+from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
 from core.tools import Tool, tool
 
 
@@ -78,6 +78,131 @@ def test_run_stream_converts_model_error_to_terminal_events() -> None:
     assert "sk-secret" not in str(events)
     assert events[-1]["stop_reason"] == "model_error"
     assert sum(event["type"] == "done" for event in events) == 1
+
+
+def test_run_stream_reconstructs_multiple_tools_and_executes_by_index() -> None:
+    calls: list[str] = []
+
+    @tool
+    def first(value: int) -> str:
+        calls.append("first")
+        return str(value)
+
+    @tool
+    def second(value: int) -> str:
+        calls.append("second")
+        return str(value)
+
+    model = ScriptedStreamingChatModel([], [
+        [
+            StreamChunk(tool_calls=[
+                ToolCallDelta(1, "c2", "second", '{"value":'),
+                ToolCallDelta(0, "c1", "first", '{"value":'),
+            ]),
+            StreamChunk(
+                tool_calls=[
+                    ToolCallDelta(0, arguments="1}"),
+                    ToolCallDelta(1, arguments="2}"),
+                ],
+                finish_reason="tool_calls",
+            ),
+        ],
+        [StreamChunk(content="done", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[first, second]).run_stream("question"))
+
+    assert calls == ["first", "second"]
+    assert [event["name"] for event in events if event["type"] == "tool_call"] == [
+        "first",
+        "second",
+    ]
+    second_request = model.stream_calls[1][0]
+    assistant = second_request[-3]
+    assert assistant["role"] == "assistant"
+    assert [call["id"] for call in assistant["tool_calls"]] == ["c1", "c2"]
+    assert [message["tool_call_id"] for message in second_request[-2:]] == ["c1", "c2"]
+
+
+def test_run_stream_returns_invalid_json_to_model_for_correction() -> None:
+    executions = 0
+
+    @tool
+    def add(a: int, b: int) -> int:
+        nonlocal executions
+        executions += 1
+        return a + b
+
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "add", '{"a":1')],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(content="corrected", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[add]).run_stream("question"))
+    tool_event = next(event for event in events if event["type"] == "tool_call")
+    observation = next(event for event in events if event["type"] == "observation")
+
+    assert executions == 0
+    assert tool_event["arguments"] is None
+    assert tool_event["raw_arguments"] == '{"a":1'
+    assert tool_event["error_code"] == "invalid_arguments"
+    assert observation["error_code"] == "invalid_arguments"
+    assert model.stream_calls[1][0][-1]["tool_call_id"] == "c1"
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "", "tool_name", "{}")],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "", "{}")],
+            finish_reason="tool_calls",
+        )],
+        [
+            StreamChunk(tool_calls=[ToolCallDelta(0, "c1", "tool_name", "")]),
+            StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c2", "", "{}")],
+                finish_reason="tool_calls",
+            ),
+        ],
+        [
+            StreamChunk(tool_calls=[ToolCallDelta(0, "c1", "first", "")]),
+            StreamChunk(
+                tool_calls=[ToolCallDelta(0, "", "second", "{}")],
+                finish_reason="tool_calls",
+            ),
+        ],
+        [StreamChunk(finish_reason="tool_calls")],
+    ],
+)
+def test_run_stream_rejects_invalid_tool_call_metadata(
+    chunks: list[StreamChunk],
+) -> None:
+    executions = 0
+
+    def tool_name() -> str:
+        nonlocal executions
+        executions += 1
+        return "ok"
+
+    model = ScriptedStreamingChatModel([], [chunks])
+
+    events = list(Agent(llm=model, tools=[tool_name]).run_stream("question"))
+
+    assert executions == 0
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "model_error",
+        "done",
+    ]
+    assert events[1]["error_code"] == "stream_protocol_error"
+    assert events[-1]["stop_reason"] == "model_error"
 
 
 def make_mock_llm(responses: list[LLMResponse]):
@@ -255,9 +380,12 @@ class TestAgentBasic:
         mock_llm = Mock()
         mock_llm.chat_stream.side_effect = [
             [StreamChunk(
-                tool_call_id="call_1",
-                tool_name="add",
-                tool_args='{"a": 1, "b": 2}',
+                tool_calls=[ToolCallDelta(
+                    index=0,
+                    id="call_1",
+                    name="add",
+                    arguments='{"a": 1, "b": 2}',
+                )],
                 finish_reason="tool_calls",
             )],
             [StreamChunk(content="[FINAL] 3", finish_reason="stop")],
@@ -278,15 +406,11 @@ class TestAgentBasic:
         mock_llm = Mock()
         mock_llm.chat_stream.side_effect = [
             [StreamChunk(
-                tool_call_id="call_1",
-                tool_name="keep_going",
-                tool_args="{}",
+                tool_calls=[ToolCallDelta(0, "call_1", "keep_going", "{}")],
                 finish_reason="tool_calls",
             )],
             [StreamChunk(
-                tool_call_id="call_2",
-                tool_name="keep_going",
-                tool_args="{}",
+                tool_calls=[ToolCallDelta(0, "call_2", "keep_going", "{}")],
                 finish_reason="tool_calls",
             )],
         ]
@@ -556,9 +680,7 @@ class TestAgentToolIsolation:
         second_model = Mock()
         second_model.chat_stream.side_effect = [
             [StreamChunk(
-                tool_call_id="call_1",
-                tool_name="first_only",
-                tool_args="{}",
+                tool_calls=[ToolCallDelta(0, "call_1", "first_only", "{}")],
                 finish_reason="tool_calls",
             )],
             [StreamChunk(content="[FINAL] second", finish_reason="stop")],

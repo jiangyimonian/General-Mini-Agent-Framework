@@ -732,7 +732,7 @@ Run `git diff --check` and report each terminal sequence. Suggested commit messa
 - Consumes: indexed `ToolCallDelta` chunks and terminal events from Tasks 1-3.
 - Produces: private `_ToolCallAccumulator`, populated `ToolCallEvent` and `ObservationEvent` values, one assistant context message per model tool turn, and ordered tool result messages.
 
-- [ ] **Step 1: Migrate existing Agent stream fixtures to indexed deltas**
+- [x] **Step 1: Migrate existing Agent stream fixtures to indexed deltas**
 
 Replace every legacy stream constructor in `tests/test_agent.py` with the stable shape:
 
@@ -752,7 +752,7 @@ StreamChunk(
 
 Import `ToolCallDelta` from `core.llm`. Remove the three legacy fields from `StreamChunk` in `core/llm.py` only after all fixtures and Agent code in this task use `tool_calls`.
 
-- [ ] **Step 2: Write failing multi-tool and context tests**
+- [x] **Step 2: Write failing multi-tool and context tests**
 
 Use interleaved fragments and indexes arriving out of order:
 
@@ -798,7 +798,7 @@ def test_run_stream_reconstructs_multiple_tools_and_executes_by_index() -> None:
     assert [message["tool_call_id"] for message in second_request[-2:]] == ["c1", "c2"]
 ```
 
-- [ ] **Step 3: Write failing recovery and protocol-error tests**
+- [x] **Step 3: Write failing recovery and protocol-error tests**
 
 Verify malformed JSON is returned to the model without executing the tool:
 
@@ -834,7 +834,7 @@ def test_run_stream_returns_invalid_json_to_model_for_correction() -> None:
 
 Parameterize missing id, missing name, conflicting ids, conflicting names, and `finish_reason="tool_calls"` with no calls. Assert each path emits `model_error(error_code="stream_protocol_error")`, then `done(model_error)`, and executes zero tools.
 
-- [ ] **Step 4: Run tool tests to verify RED**
+- [x] **Step 4: Run tool tests to verify RED**
 
 Run:
 
@@ -844,7 +844,7 @@ python -m pytest tests/test_agent.py -k "reconstructs_multiple or invalid_json o
 
 Expected: failures expose the one-tool index assumption, `{}` fallback for malformed JSON, repeated assistant messages, and absent metadata validation.
 
-- [ ] **Step 5: Implement the private accumulator**
+- [x] **Step 5: Implement the private accumulator**
 
 Add private records in `core/agent.py`:
 
@@ -903,7 +903,7 @@ class _ToolCallAccumulator:
 
 The accumulator lives inside each `run_stream()` invocation, never on `Agent`.
 
-- [ ] **Step 6: Implement ordered execution with the stable event types**
+- [x] **Step 6: Implement ordered execution with the stable event types**
 
 Import `ToolExecutionResult` from `core.tools`. After `finish_reason == "tool_calls"`, finalize all
 calls before executing any call. Route a `ModelRequestError` raised by `add()` or `finalize()`
@@ -928,7 +928,7 @@ except (json.JSONDecodeError, ValueError) as exc:
 
 Construct `tool_call` and `observation` events with every required identity field, attach `execution.error_code` to both when present, append one trace entry, invoke `on_tool_call` once, and append one tool message. Continue to the next model iteration after all calls complete.
 
-- [ ] **Step 7: Run focused and full regression tests**
+- [x] **Step 7: Run focused and full regression tests**
 
 Run:
 
@@ -939,7 +939,7 @@ python -m pytest tests -v
 
 Expected: all tests pass; multi-tool execution and context order are deterministic; synchronous tests remain unchanged.
 
-- [ ] **Step 8: Stop for review**
+- [x] **Step 8: Stop for review**
 
 Run `git diff --check` and report call ordering, invalid-argument recovery, and protocol failure coverage. Suggested commit message after approval: `feat: support streamed multi-tool calls`.
 

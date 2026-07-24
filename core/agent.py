@@ -7,8 +7,8 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, NotRequired, TypedDict
 
-from .llm import ChatModel, ModelRequestError
-from .tools import Tool, ToolRegistry
+from .llm import ChatModel, ModelRequestError, ToolCallDelta
+from .tools import Tool, ToolExecutionResult, ToolRegistry
 
 # ─── 结果类型 ───────────────────────────────────────────────
 
@@ -21,7 +21,10 @@ class TraceEvent(TypedDict):
     iteration: int
     thought: NotRequired[str]
     tool: NotRequired[str]
-    arguments: NotRequired[dict[str, Any]]
+    arguments: NotRequired[dict[str, Any] | None]
+    raw_arguments: NotRequired[str]
+    index: NotRequired[int]
+    tool_call_id: NotRequired[str]
     observation: NotRequired[str]
     error_code: NotRequired[str]
     final_answer: NotRequired[str]
@@ -95,6 +98,58 @@ StreamEvent = (
     | ModelErrorEvent
     | DoneEvent
 )
+
+
+@dataclass
+class _AccumulatedToolCall:
+    index: int
+    id: str = ""
+    name: str = ""
+    argument_parts: list[str] = field(default_factory=list)
+
+    @property
+    def raw_arguments(self) -> str:
+        return "".join(self.argument_parts)
+
+
+class _ToolCallAccumulator:
+    def __init__(self) -> None:
+        self._calls: dict[int, _AccumulatedToolCall] = {}
+
+    def add(self, delta: ToolCallDelta) -> None:
+        call = self._calls.setdefault(delta.index, _AccumulatedToolCall(delta.index))
+        if delta.id:
+            if call.id and call.id != delta.id:
+                raise self._protocol_error(delta.index, "id")
+            call.id = delta.id
+        if delta.name:
+            if call.name and call.name != delta.name:
+                raise self._protocol_error(delta.index, "name")
+            call.name = delta.name
+        if delta.arguments:
+            call.argument_parts.append(delta.arguments)
+
+    def finalize(self) -> list[_AccumulatedToolCall]:
+        calls = [self._calls[index] for index in sorted(self._calls)]
+        if not calls:
+            raise ModelRequestError(
+                "model ended with tool_calls but supplied no calls",
+                error_code="stream_protocol_error",
+            )
+        for call in calls:
+            if not call.id or not call.name:
+                raise ModelRequestError(
+                    f"model tool call at index {call.index} is missing identity metadata",
+                    error_code="stream_protocol_error",
+                )
+        return calls
+
+    @staticmethod
+    def _protocol_error(index: int, field_name: str) -> ModelRequestError:
+        return ModelRequestError(
+            f"model tool call at index {index} has conflicting {field_name}",
+            error_code="stream_protocol_error",
+        )
 
 
 @dataclass
@@ -304,7 +359,8 @@ class Agent:
             yield {"type": "iteration_start", "iteration": iteration}
 
             thought_parts: list[str] = []
-            tool_calls_buffer: dict[int, dict[str, Any]] = {}
+            tool_calls = _ToolCallAccumulator()
+            finalized_calls: list[_AccumulatedToolCall] | None = None
             finish_reason = ""
 
             try:
@@ -319,24 +375,15 @@ class Agent:
                             "text": chunk.content,
                         }
 
-                    if chunk.tool_call_id:
-                        tool_calls_buffer.setdefault(
-                            0,
-                            {
-                                "id": chunk.tool_call_id,
-                                "name": chunk.tool_name,
-                                "arguments": "",
-                            },
-                        )
-                    if (chunk.tool_call_id or chunk.tool_args) and 0 in tool_calls_buffer:
-                        if chunk.tool_name:
-                            tool_calls_buffer[0]["name"] = chunk.tool_name
-                        tool_calls_buffer[0]["arguments"] += chunk.tool_args
+                    for delta in chunk.tool_calls:
+                        tool_calls.add(delta)
 
                     if chunk.usage:
                         self._accumulate_usage(total_usage, chunk.usage)
                     if chunk.finish_reason:
                         finish_reason = chunk.finish_reason
+                if finish_reason == "tool_calls":
+                    finalized_calls = tool_calls.finalize()
             except ModelRequestError as exc:
                 error = str(exc)
                 trace.append({
@@ -366,31 +413,54 @@ class Agent:
 
             thought = "".join(thought_parts)
 
-            if tool_calls_buffer:
-                for index, tc_data in tool_calls_buffer.items():
-                    raw_arguments = tc_data["arguments"]
-                    try:
-                        arguments = json.loads(raw_arguments)
-                    except (json.JSONDecodeError, KeyError):
-                        arguments = {}
+            if finalized_calls is not None:
+                messages.append({
+                    "role": "assistant",
+                    "content": thought,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": call.raw_arguments,
+                            },
+                        }
+                        for call in finalized_calls
+                    ],
+                })
 
-                    execution = self.registry.execute(tc_data["name"], arguments)
+                for call in finalized_calls:
+                    raw_arguments = call.raw_arguments
+                    try:
+                        parsed = json.loads(raw_arguments)
+                        if not isinstance(parsed, dict):
+                            raise ValueError("tool arguments must be a JSON object")
+                        arguments: dict[str, Any] | None = parsed
+                        execution = self.registry.execute(call.name, parsed)
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        arguments = None
+                        execution = ToolExecutionResult(
+                            content=f"invalid arguments for tool '{call.name}': {exc}",
+                            error_code="invalid_arguments",
+                        )
+
                     obs = execution.content
                     tool_event: ToolCallEvent = {
                         "type": "tool_call",
                         "iteration": iteration,
-                        "index": index,
-                        "id": tc_data["id"],
-                        "name": tc_data["name"],
+                        "index": call.index,
+                        "id": call.id,
+                        "name": call.name,
                         "arguments": arguments,
                         "raw_arguments": raw_arguments,
                     }
                     observation_event: ObservationEvent = {
                         "type": "observation",
                         "iteration": iteration,
-                        "index": index,
-                        "tool_call_id": tc_data["id"],
-                        "name": tc_data["name"],
+                        "index": call.index,
+                        "tool_call_id": call.id,
+                        "name": call.name,
                         "text": obs,
                     }
                     if execution.error_code is not None:
@@ -403,8 +473,11 @@ class Agent:
                         "type": "tool_call",
                         "iteration": iteration,
                         "thought": thought,
-                        "tool": tc_data["name"],
+                        "tool": call.name,
+                        "tool_call_id": call.id,
+                        "index": call.index,
                         "arguments": arguments,
+                        "raw_arguments": raw_arguments,
                         "observation": obs,
                     }
                     if execution.error_code is not None:
@@ -413,20 +486,8 @@ class Agent:
                     self._call_hook("on_tool_call", trace[-1])
 
                     messages.append({
-                        "role": "assistant",
-                        "content": thought,
-                        "tool_calls": [{
-                            "id": tc_data["id"],
-                            "type": "function",
-                            "function": {
-                                "name": tc_data["name"],
-                                "arguments": json.dumps(arguments),
-                            },
-                        }],
-                    })
-                    messages.append({
                         "role": "tool",
-                        "tool_call_id": tc_data["id"],
+                        "tool_call_id": call.id,
                         "content": obs,
                     })
                 continue

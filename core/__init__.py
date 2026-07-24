@@ -1,4 +1,12 @@
 from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, StreamEvent, TraceEvent
+from .context import (
+    ApproximateTokenCounter,
+    ContextBudgetExceeded,
+    ContextPolicy,
+    SummarizingContext,
+    TokenBudgetContext,
+    TokenCounter,
+)
 from .llm import (
     LLM,
     ChatModel,
@@ -9,10 +17,11 @@ from .llm import (
     StreamingChatModel,
     ToolCallDelta,
 )
+from .memory import ConversationMemory, InMemoryConversation
 from .tools import Tool, ToolRegistry, tool
 
 # isort: split
-# Experimental compatibility exports; not part of the 0.1.0 stable API.
+# Experimental compatibility exports; not part of the stable API.
 from .memory import LongTermMemory, SlidingWindowMemory
 
 __all__ = [
@@ -33,6 +42,14 @@ __all__ = [
     "AgentStopReason",
     "StreamEvent",
     "TraceEvent",
+    "TokenCounter",
+    "ApproximateTokenCounter",
+    "ContextPolicy",
+    "TokenBudgetContext",
+    "SummarizingContext",
+    "ContextBudgetExceeded",
+    "ConversationMemory",
+    "InMemoryConversation",
     "SlidingWindowMemory",
     "LongTermMemory",
 ]

@@ -11,8 +11,6 @@ General Mini Agent Framework 交互式终端。
     /exit    退出
 """
 
-# Experimental example: not covered by the 0.1.0 stable API.
-
 from __future__ import annotations
 
 import os
@@ -23,8 +21,9 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from core.agent import Agent  # noqa: E402
+from core.context import TokenBudgetContext  # noqa: E402
 from core.llm import LLM, LLMConfig  # noqa: E402
-from core.memory import SlidingWindowMemory  # noqa: E402
+from core.memory import InMemoryConversation  # noqa: E402
 from core.tools import tool  # noqa: E402
 from core.trace import export_trace  # noqa: E402
 
@@ -81,16 +80,7 @@ C = {
 # ─── 主逻辑 ────────────────────────────────────────────────
 
 
-def record_exchange(
-    memory: SlidingWindowMemory,
-    user_input: str,
-    assistant_content: str,
-) -> None:
-    memory.add("user", user_input)
-    memory.add("assistant", assistant_content)
-
-
-def clear_context(memory: SlidingWindowMemory) -> None:
+def clear_context(memory: InMemoryConversation) -> None:
     memory.clear()
 
 
@@ -111,12 +101,23 @@ def main():
         temperature=0.0,
     )
 
-    memory = SlidingWindowMemory(window_size=20)
+    context_window = os.environ.get("LLM_CONTEXT_WINDOW")
+    reserved_output_tokens = os.environ.get("LLM_RESERVED_OUTPUT_TOKENS")
+    if not context_window or not reserved_output_tokens:
+        print("错误: 请设置 LLM_CONTEXT_WINDOW 和 LLM_RESERVED_OUTPUT_TOKENS")
+        sys.exit(1)
+
+    memory = InMemoryConversation()
+    context_policy = TokenBudgetContext(
+        context_window=int(context_window),
+        reserved_output_tokens=int(reserved_output_tokens),
+    )
     agent = Agent(
         llm=LLM(config),
         tools=[calculate, search, get_date],
         max_iterations=10,
         memory=memory,
+        context_policy=context_policy,
     )
     last_result = None
 
@@ -203,7 +204,9 @@ def main():
                 elapsed = time.time() - start
                 usage = event.get("usage", {})
                 trace = event.get("trace", [])
-                record_exchange(memory, user_input, event["content"])
+                if event["stop_reason"] != "completed":
+                    detail = event.get("error") or event.get("content") or event["stop_reason"]
+                    print(f"\n  {C['yellow']}{detail}{C['reset']}")
 
                 # 按轮次分组汇总
                 print(f"\n  {C['dim']}{'─' * 40}{C['reset']}")

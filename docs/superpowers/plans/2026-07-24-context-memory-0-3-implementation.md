@@ -33,6 +33,9 @@
 - Modify `tests/test_memory.py`: stable in-memory store and atomic validation coverage.
 - Modify `tests/test_agent.py`: sync/stream preparation, errors, writeback, cancellation, and compatibility.
 - Modify `tests/test_chat_demo.py`: remove manual-recording expectations and retain clear behavior.
+- Modify `tests/test_docs_contract.py`: require the stable `0.3.0` context API documentation.
+- Modify `tests/test_package_metadata.py`: require the `0.3.0` package version.
+- Modify `.env.example`: document explicit context-window and output-reserve settings.
 - Modify `README.md`, `PLAN.md`, `ROADMAP.md`, `pyproject.toml`: document and release `0.3.0`.
 
 ### Task 1: Token Counting and Budget Contracts
@@ -440,6 +443,8 @@ git commit -m "feat: add optional context summarization"
 - Modify: `demo/chat.py`
 - Modify: `tests/test_chat_demo.py`
 - Modify: `tests/test_docs_contract.py`
+- Modify: `tests/test_package_metadata.py`
+- Modify: `.env.example`
 - Modify: `README.md`
 - Modify: `PLAN.md`
 - Modify: `ROADMAP.md`
@@ -449,7 +454,7 @@ git commit -m "feat: add optional context summarization"
 - Consumes: all Tasks 1-5 public APIs
 - Produces: documented `0.3.0` package surface and runnable budgeted chat Demo
 
-- [ ] **Step 1: Add failing export, version, and Demo contract tests**
+- [x] **Step 1: Add failing export, version, and Demo contract tests**
 
 ```python
 def test_chat_demo_uses_automatic_memory_writeback() -> None:
@@ -465,12 +470,12 @@ def test_release_documents_context_api() -> None:
     assert "context_budget_exceeded" in readme
 ```
 
-- [ ] **Step 2: Run focused release tests and confirm failures**
+- [x] **Step 2: Run focused release tests and confirm failures**
 
 Run: `python -m pytest tests/test_chat_demo.py tests/test_docs_contract.py -v`
 Expected: FAIL against `0.2.0` exports, Demo, and documentation.
 
-- [ ] **Step 3: Export APIs and migrate the Demo**
+- [x] **Step 3: Export APIs and migrate the Demo**
 
 Export `TokenCounter`, `ApproximateTokenCounter`, `ContextPolicy`, `TokenBudgetContext`,
 `SummarizingContext`, `ContextBudgetExceeded`, `ConversationMemory`, and `InMemoryConversation`.
@@ -488,24 +493,24 @@ agent = Agent(..., memory=memory, context_policy=context_policy)
 Remove `record_exchange()` and its call. Only display successful content already committed by Agent;
 all other terminal reasons display their safe `error` without changing memory.
 
-- [ ] **Step 4: Update release documents and version**
+- [x] **Step 4: Update release documents and version**
 
 Set `pyproject.toml` version to `0.3.0`. Update README examples and limitations, promote context and
 conversation memory to stable APIs in `PLAN.md`, remove completed deterministic context work from
 `ROADMAP.md`, and add a `0.3.1` section for persistent namespaced vector memory. Do not describe
 provider-exact counting or automatic long-term retrieval as shipped.
 
-- [ ] **Step 5: Run focused release tests**
+- [x] **Step 5: Run focused release tests**
 
 Run: `python -m pytest tests/test_chat_demo.py tests/test_docs_contract.py -v`
 Expected: all focused release tests PASS.
 
-- [ ] **Step 6: Run complete automated tests**
+- [x] **Step 6: Run complete automated tests**
 
 Run: `python -m pytest tests -v`
 Expected: all tests PASS with no network access.
 
-- [ ] **Step 7: Run compilation, lint, and whitespace verification**
+- [x] **Step 7: Run compilation, lint, and whitespace verification**
 
 Run: `python -m compileall -q core demo tests`
 Expected: exit code 0.
@@ -516,14 +521,14 @@ Expected: `All checks passed!`
 Run: `git diff --check`
 Expected: no output and exit code 0.
 
-- [ ] **Step 8: Commit the release**
+- [x] **Step 8: Commit the release**
 
 ```bash
-git add core/__init__.py demo/chat.py tests/test_chat_demo.py tests/test_docs_contract.py README.md PLAN.md ROADMAP.md pyproject.toml docs/superpowers/plans/2026-07-24-context-memory-0-3-implementation.md
+git add .env.example core/__init__.py demo/chat.py tests/test_chat_demo.py tests/test_docs_contract.py tests/test_package_metadata.py README.md PLAN.md ROADMAP.md pyproject.toml docs/superpowers/plans/2026-07-24-context-memory-0-3-implementation.md
 git commit -m "feat: release bounded context in 0.3.0"
 ```
 
-- [ ] **Step 9: Push the completed task series**
+- [x] **Step 9: Push the completed task series**
 
 Run: `git push origin dev`
 Expected: remote `dev` advances through all `0.3.0` commits.

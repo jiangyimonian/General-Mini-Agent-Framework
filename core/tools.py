@@ -8,6 +8,7 @@ import re
 from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
+from typing import Any, Protocol, Union, get_args, get_origin
 from types import UnionType
 from typing import Any, Union, get_args, get_origin
 
@@ -28,6 +29,25 @@ class ToolExecutionResult:
     content: str
     value: JSONValue | None = None
     error_code: str | None = None
+
+
+@dataclass(frozen=True)
+class ToolAuthorizationRequest:
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolAuthorizationDecision:
+    allowed: bool
+    reason: str | None = None
+
+
+class ToolAuthorizationPolicy(Protocol):
+    def authorize(
+        self,
+        request: ToolAuthorizationRequest,
+    ) -> ToolAuthorizationDecision: ...
 
 
 def _is_json_value(value: Any) -> bool:
@@ -212,9 +232,13 @@ class ToolRegistry:
     """A private registry owned by one Agent or caller."""
 
     def __init__(
-        self, tools: Iterable[Tool | Callable[..., Any]] = ()
+        self,
+        tools: Iterable[Tool | Callable[..., Any]] = (),
+        *,
+        authorization_policy: ToolAuthorizationPolicy | None = None,
     ) -> None:
         self._tools: dict[str, Tool] = {}
+        self._policy = authorization_policy
         for value in tools:
             self.register(value)
 
@@ -258,6 +282,24 @@ class ToolRegistry:
                 content=f"invalid arguments for tool '{name}': {exc}",
                 error_code="invalid_arguments",
             )
+
+        if self._policy is not None:
+            request = ToolAuthorizationRequest(
+                name=name,
+                arguments=dict(arguments),
+            )
+            try:
+                decision = self._policy.authorize(request)
+            except Exception:
+                return ToolExecutionResult(
+                    content="authorization error",
+                    error_code="authorization_error",
+                )
+            if not decision.allowed:
+                return ToolExecutionResult(
+                    content="permission denied",
+                    error_code="permission_denied",
+                )
 
         try:
             result = registered.func(**arguments)

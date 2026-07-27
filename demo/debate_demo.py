@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from core.agent import Agent  # noqa: E402
-from core.debate import Debate  # noqa: E402
+from core.debate import create_debate  # noqa: E402
 from core.llm import LLM, LLMConfig  # noqa: E402
 from core.tools import tool  # noqa: E402
 
@@ -106,8 +106,7 @@ def main():
     )
 
     # 创建辩论
-    debate = Debate(solver=solver, critic=critic, judge=judge)
-    debate.config.max_rounds = 2
+    debate = create_debate(solver, critic, judge, max_rounds=2)
 
     # 一个故意有陷阱的问题
     question = "地球绕太阳公转的线速度是多少？提示：轨道近似圆形"
@@ -119,9 +118,9 @@ def main():
 
     # 输出辩论过程
     for r in result.rounds:
-        print(f"\n{C['dim']}── 第 {r['round'] + 1} 轮辩论 ──{C['reset']}")
-        for resp in r["responses"]:
-            print_role(resp["role"], resp["content"])
+        print(f"\n{C['dim']}── 第 {r.number} 轮辩论 ──{C['reset']}")
+        for turn in r.turns:
+            print_role(turn.role, turn.content)
 
     print(f"\n{C['dim']}{'═' * 50}{C['reset']}")
     print(f"\n{C['judge']}📊 最终结论:{C['reset']}")

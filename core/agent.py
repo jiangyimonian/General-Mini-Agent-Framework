@@ -15,7 +15,12 @@ from .long_term_memory import (
     MemoryStoreError,
     build_memory_context,
 )
-from .tools import Tool, ToolExecutionResult, ToolRegistry
+from .tools import (
+    Tool,
+    ToolAuthorizationPolicy,
+    ToolExecutionResult,
+    ToolRegistry,
+)
 
 # ─── 结果类型 ───────────────────────────────────────────────
 
@@ -226,6 +231,7 @@ class Agent:
         context_policy: ContextPolicy | None = None,
         hooks: dict[str, Callable] | None = None,
         long_term_memory: LongTermMemoryStore | None = None,
+        tool_authorization_policy: ToolAuthorizationPolicy | None = None,
     ):
         self.llm = llm
         self.max_iterations = max_iterations
@@ -233,7 +239,10 @@ class Agent:
         self.context_policy = context_policy
         self.long_term_memory = long_term_memory
 
-        self.registry = ToolRegistry(tools or [])
+        self.registry = ToolRegistry(
+            tools or [],
+            authorization_policy=tool_authorization_policy,
+        )
         self.tools = self.registry.list()
 
         # 系统提示词

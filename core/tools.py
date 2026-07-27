@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
 from collections.abc import Callable, Iterable
 from copy import deepcopy
@@ -19,11 +20,63 @@ TYPE_MAP = {
     dict: "object",
 }
 
+type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
+
 
 @dataclass(frozen=True)
 class ToolExecutionResult:
     content: str
+    value: JSONValue | None = None
     error_code: str | None = None
+
+
+def _is_json_value(value: Any) -> bool:
+    """Recursively validate that value conforms to JSONValue."""
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        try:
+            json.dumps(value, allow_nan=False)
+            return True
+        except ValueError:
+            return False
+    if isinstance(value, str):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_value(val)
+            for key, val in value.items()
+        )
+    return False
+
+
+def _serialize_result(value: Any) -> ToolExecutionResult:
+    """Serialize tool result with deterministic JSON or fail closed."""
+    if isinstance(value, str):
+        return ToolExecutionResult(content=value, value=None)
+    if _is_json_value(value):
+        try:
+            content = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+            return ToolExecutionResult(content=content, value=value)
+        except (TypeError, ValueError):
+            pass
+    return ToolExecutionResult(
+        content="tool result is not valid JSON",
+        value=None,
+        error_code="serialization_failed",
+    )
 
 
 class Tool:
@@ -213,7 +266,7 @@ class ToolRegistry:
                 content=f"tool execution failed: {type(exc).__name__}: {exc}",
                 error_code="execution_failed",
             )
-        return ToolExecutionResult(content=str(result))
+        return _serialize_result(result)
 
 
 def tool(

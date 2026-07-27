@@ -1,5 +1,7 @@
 """Tests for local tool registration, schemas, and execution."""
 
+from typing import Any
+
 import pytest
 
 from core.tools import ToolRegistry, tool
@@ -192,6 +194,51 @@ class TestToolRegistration:
         assert [item.name for item in first_registry.list()] == ["first"]
         assert [item.name for item in second_registry.list()] == ["second"]
         assert first_registry.schemas()[0]["function"]["name"] == "first"
+
+
+class TestStructuredToolResult:
+    """Tests for JSON-preserving tool results and serialization failures."""
+
+    def test_dict_result_preserves_value_and_deterministic_json(self) -> None:
+        def fetch() -> dict[str, Any]:
+            return {"items": [1, True, None], "status": "ok"}
+
+        result = ToolRegistry([fetch]).execute("fetch", {})
+
+        assert result.error_code is None
+        assert result.content == '{"items":[1,true,null],"status":"ok"}'
+        assert result.value == {"items": [1, True, None], "status": "ok"}
+
+    def test_string_result_remains_unmodified(self) -> None:
+        def greet() -> str:
+            return "hello world"
+
+        result = ToolRegistry([greet]).execute("greet", {})
+
+        assert result.error_code is None
+        assert result.content == "hello world"
+        assert result.value is None
+
+    @pytest.mark.parametrize(
+        "invalid_value",
+        [
+            object(),
+            float("nan"),
+            {1: "value"},
+        ],
+        ids=["object", "nan", "non_string_key"],
+    )
+    def test_non_json_result_returns_serialization_failed(
+        self, invalid_value: Any
+    ) -> None:
+        def broken() -> Any:
+            return invalid_value
+
+        result = ToolRegistry([broken]).execute("broken", {})
+
+        assert result.error_code == "serialization_failed"
+        assert result.content == "tool result is not valid JSON"
+        assert result.value is None
 
 
 class TestToolDecorator:

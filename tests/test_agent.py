@@ -1,12 +1,427 @@
 """测试 Agent ReAct 循环"""
 
+from copy import deepcopy
+from typing import Any
 from unittest.mock import Mock
 
-from conftest import ScriptedChatModel
+import pytest
+from conftest import ScriptedChatModel, ScriptedStreamingChatModel
 
 from core.agent import Agent
-from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall
+from core.context import ContextBudgetExceeded
+from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
+from core.long_term_memory import (
+    MemoryNamespace,
+    MemoryQuery,
+    MemoryStoreError,
+    create_memory_record,
+)
+from core.memory import InMemoryConversation
 from core.tools import Tool, tool
+
+
+class RecordingContextPolicy:
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+
+    def prepare(self, messages, *, tools=None):
+        self.calls.append(deepcopy((list(messages), list(tools or []))))
+        return deepcopy(list(messages))
+
+
+class RejectingContextPolicy:
+    def prepare(self, messages, *, tools=None):
+        raise ContextBudgetExceeded(input_tokens=12, input_budget=10)
+
+
+LONG_TERM_NAMESPACE = MemoryNamespace("user-1", "conversation-1", "agent-1")
+LONG_TERM_QUERY = MemoryQuery("python", LONG_TERM_NAMESPACE)
+
+
+class RecordingStore:
+    def __init__(self, records) -> None:
+        self.records = records
+        self.queries = []
+        self.mutations = []
+
+    def query(self, query):
+        self.queries.append(query)
+        return self.records
+
+    def store(self, *args, **kwargs):
+        self.mutations.append("store")
+
+    def update(self, *args, **kwargs):
+        self.mutations.append("update")
+
+    def delete(self, *args, **kwargs):
+        self.mutations.append("delete")
+
+    def clear(self, *args, **kwargs):
+        self.mutations.append("clear")
+
+
+class FailOnAccessStore:
+    def __getattribute__(self, name):
+        if name.startswith("_"):
+            return object.__getattribute__(self, name)
+        raise AssertionError(f"unexpected long-term memory access: {name}")
+
+
+class FailingQueryStore:
+    def query(self, query):
+        raise MemoryStoreError("query", backend="test")
+
+
+def test_run_retrieves_once_and_keeps_long_term_store_read_only() -> None:
+    store = RecordingStore([
+        create_memory_record("prefers Python", LONG_TERM_NAMESPACE),
+    ])
+    model = ScriptedChatModel([LLMResponse("done", None)])
+
+    Agent(model, long_term_memory=store).run(
+        "question",
+        memory_query=LONG_TERM_QUERY,
+    )
+
+    assert store.queries == [LONG_TERM_QUERY]
+    assert "prefers Python" in model.calls[0][0][1]["content"]
+    assert store.mutations == []
+
+
+def test_run_without_query_never_accesses_long_term_store() -> None:
+    model = ScriptedChatModel([LLMResponse("done", None)])
+
+    Agent(model, long_term_memory=FailOnAccessStore()).run("question")
+
+    assert model.calls
+
+
+def test_memory_error_stops_sync_run_before_model_access() -> None:
+    model = ScriptedChatModel([])
+
+    result = Agent(model, long_term_memory=FailingQueryStore()).run(
+        "question",
+        memory_query=LONG_TERM_QUERY,
+    )
+
+    assert result.stop_reason == "memory_error"
+    assert model.calls == []
+
+
+def test_stream_retrieval_and_memory_error_match_sync_contract() -> None:
+    memory = InMemoryConversation()
+    model = ScriptedStreamingChatModel([], [])
+
+    events = list(
+        Agent(
+            model,
+            memory=memory,
+            long_term_memory=FailingQueryStore(),
+        ).run_stream("question", memory_query=LONG_TERM_QUERY)
+    )
+
+    assert events[-1]["stop_reason"] == "memory_error"
+    assert model.stream_calls == []
+    assert memory.get_context() == []
+
+
+@pytest.mark.parametrize(
+    "finish_reason",
+    ["length", "content_filter", "future_reason", ""],
+)
+def test_run_stream_maps_non_terminal_finishes_to_incomplete(
+    finish_reason: str,
+) -> None:
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="partial", finish_reason=finish_reason)]],
+    )
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "thought_chunk",
+        "done",
+    ]
+    assert events[-1]["stop_reason"] == "incomplete"
+    assert events[-1]["content"] == "partial"
+    assert events[-1]["finish_reason"] == finish_reason
+
+
+def test_run_stream_completed_event_keys_and_order() -> None:
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="answer", finish_reason="stop")]],
+    )
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "thought_chunk",
+        "final_answer",
+        "done",
+    ]
+    assert events[1] == {
+        "type": "thought_chunk",
+        "iteration": 0,
+        "text": "answer",
+    }
+    assert events[-1]["stop_reason"] == "completed"
+    assert events[-1]["iterations"] == 1
+    assert sum(event["type"] == "done" for event in events) == 1
+
+
+def test_run_stream_converts_model_error_to_terminal_events() -> None:
+    error = ModelRequestError(
+        "invalid model stream sk-secret",
+        status_code=502,
+        error_code="stream_protocol_error",
+    )
+    model = ScriptedStreamingChatModel([], [error])
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "model_error",
+        "done",
+    ]
+    assert events[1]["error_code"] == "stream_protocol_error"
+    assert events[1]["status_code"] == 502
+    assert "sk-secret" not in str(events)
+    assert events[-1]["stop_reason"] == "model_error"
+    assert sum(event["type"] == "done" for event in events) == 1
+
+
+def test_run_stream_reconstructs_multiple_tools_and_executes_by_index() -> None:
+    calls: list[str] = []
+
+    @tool
+    def first(value: int) -> str:
+        calls.append("first")
+        return str(value)
+
+    @tool
+    def second(value: int) -> str:
+        calls.append("second")
+        return str(value)
+
+    model = ScriptedStreamingChatModel([], [
+        [
+            StreamChunk(tool_calls=[
+                ToolCallDelta(1, "c2", "second", '{"value":'),
+                ToolCallDelta(0, "c1", "first", '{"value":'),
+            ]),
+            StreamChunk(
+                tool_calls=[
+                    ToolCallDelta(0, arguments="1}"),
+                    ToolCallDelta(1, arguments="2}"),
+                ],
+                finish_reason="tool_calls",
+            ),
+        ],
+        [StreamChunk(content="done", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[first, second]).run_stream("question"))
+
+    assert calls == ["first", "second"]
+    assert [event["name"] for event in events if event["type"] == "tool_call"] == [
+        "first",
+        "second",
+    ]
+    second_request = model.stream_calls[1][0]
+    assistant = second_request[-3]
+    assert assistant["role"] == "assistant"
+    assert [call["id"] for call in assistant["tool_calls"]] == ["c1", "c2"]
+    assert [message["tool_call_id"] for message in second_request[-2:]] == ["c1", "c2"]
+
+
+def test_run_stream_returns_invalid_json_to_model_for_correction() -> None:
+    executions = 0
+
+    @tool
+    def add(a: int, b: int) -> int:
+        nonlocal executions
+        executions += 1
+        return a + b
+
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "add", '{"a":1')],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(content="corrected", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[add]).run_stream("question"))
+    tool_event = next(event for event in events if event["type"] == "tool_call")
+    observation = next(event for event in events if event["type"] == "observation")
+
+    assert executions == 0
+    assert tool_event["arguments"] is None
+    assert tool_event["raw_arguments"] == '{"a":1'
+    assert tool_event["error_code"] == "invalid_arguments"
+    assert observation["error_code"] == "invalid_arguments"
+    assert model.stream_calls[1][0][-1]["tool_call_id"] == "c1"
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "", "tool_name", "{}")],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "", "{}")],
+            finish_reason="tool_calls",
+        )],
+        [
+            StreamChunk(tool_calls=[ToolCallDelta(0, "c1", "tool_name", "")]),
+            StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c2", "", "{}")],
+                finish_reason="tool_calls",
+            ),
+        ],
+        [
+            StreamChunk(tool_calls=[ToolCallDelta(0, "c1", "first", "")]),
+            StreamChunk(
+                tool_calls=[ToolCallDelta(0, "", "second", "{}")],
+                finish_reason="tool_calls",
+            ),
+        ],
+        [StreamChunk(finish_reason="tool_calls")],
+    ],
+)
+def test_run_stream_rejects_invalid_tool_call_metadata(
+    chunks: list[StreamChunk],
+) -> None:
+    executions = 0
+
+    def tool_name() -> str:
+        nonlocal executions
+        executions += 1
+        return "ok"
+
+    model = ScriptedStreamingChatModel([], [chunks])
+
+    events = list(Agent(llm=model, tools=[tool_name]).run_stream("question"))
+
+    assert executions == 0
+    assert [event["type"] for event in events] == [
+        "iteration_start",
+        "model_error",
+        "done",
+    ]
+    assert events[1]["error_code"] == "stream_protocol_error"
+    assert events[-1]["stop_reason"] == "model_error"
+
+
+def test_run_stream_counts_latest_usage_once_per_request() -> None:
+    @tool
+    def noop() -> str:
+        return "ok"
+
+    model = ScriptedStreamingChatModel([], [
+        [
+            StreamChunk(usage={"prompt_tokens": 3, "total_tokens": 3}),
+            StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c1", "noop", "{}")],
+                finish_reason="tool_calls",
+            ),
+            StreamChunk(
+                usage={"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+            ),
+        ],
+        [
+            StreamChunk(content="done", finish_reason="stop"),
+            StreamChunk(
+                usage={"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5}
+            ),
+        ],
+    ])
+
+    done = list(Agent(llm=model, tools=[noop]).run_stream("question"))[-1]
+
+    assert done["usage"] == {
+        "prompt_tokens": 7,
+        "completion_tokens": 3,
+        "total_tokens": 10,
+    }
+
+
+def test_run_stream_retains_usage_seen_before_model_error() -> None:
+    class YieldThenFailModel:
+        def chat_stream(self, messages, *, tools=None):
+            yield StreamChunk(usage={"prompt_tokens": 4, "total_tokens": 4})
+            raise ModelRequestError("stream failed")
+
+    events = list(Agent(llm=YieldThenFailModel(), tools=[]).run_stream("question"))
+
+    assert events[-1]["stop_reason"] == "model_error"
+    assert events[-1]["usage"] == {"prompt_tokens": 4, "total_tokens": 4}
+
+
+def test_run_stream_trace_and_hooks_match_public_tool_events() -> None:
+    tool_hooks: list[dict] = []
+    final_hooks: list[dict] = []
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "missing", "{}")],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(content="recovered", finish_reason="stop")],
+    ])
+    agent = Agent(
+        llm=model,
+        tools=[],
+        hooks={
+            "on_tool_call": tool_hooks.append,
+            "on_final": final_hooks.append,
+        },
+    )
+
+    done = list(agent.run_stream("question"))[-1]
+    tool_trace = done["trace"][0]
+
+    assert tool_trace["tool_call_id"] == "c1"
+    assert tool_trace["index"] == 0
+    assert tool_trace["raw_arguments"] == "{}"
+    assert tool_trace["error_code"] == "unknown_tool"
+    assert tool_hooks == [tool_trace]
+    assert len(final_hooks) == 1
+
+
+def test_run_stream_does_not_call_final_hook_for_incomplete_response() -> None:
+    final_hooks: list[dict] = []
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="partial", finish_reason="length")]],
+    )
+
+    list(Agent(llm=model, tools=[], hooks={"on_final": final_hooks.append}).run_stream("q"))
+
+    assert final_hooks == []
+
+
+def test_run_stream_state_is_isolated_between_invocations() -> None:
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(content="first", finish_reason="stop", usage={"total_tokens": 2})],
+        [StreamChunk(content="second", finish_reason="stop", usage={"total_tokens": 3})],
+    ])
+    agent = Agent(llm=model, tools=[])
+
+    first_done = list(agent.run_stream("one"))[-1]
+    second_done = list(agent.run_stream("two"))[-1]
+
+    assert first_done["content"] == "first"
+    assert second_done["content"] == "second"
+    assert second_done["usage"] == {"total_tokens": 3}
+    assert len(second_done["trace"]) == 1
 
 
 def make_mock_llm(responses: list[LLMResponse]):
@@ -184,9 +599,12 @@ class TestAgentBasic:
         mock_llm = Mock()
         mock_llm.chat_stream.side_effect = [
             [StreamChunk(
-                tool_call_id="call_1",
-                tool_name="add",
-                tool_args='{"a": 1, "b": 2}',
+                tool_calls=[ToolCallDelta(
+                    index=0,
+                    id="call_1",
+                    name="add",
+                    arguments='{"a": 1, "b": 2}',
+                )],
                 finish_reason="tool_calls",
             )],
             [StreamChunk(content="[FINAL] 3", finish_reason="stop")],
@@ -200,10 +618,25 @@ class TestAgentBasic:
         ]
 
     def test_run_stream_max_iterations_done_event_has_stop_reason(self):
-        mock_llm = Mock()
-        mock_llm.chat_stream.return_value = []
+        @tool
+        def keep_going() -> str:
+            return "continue"
 
-        events = list(Agent(llm=mock_llm, tools=[], max_iterations=2).run_stream("测试"))
+        mock_llm = Mock()
+        mock_llm.chat_stream.side_effect = [
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "call_1", "keep_going", "{}")],
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "call_2", "keep_going", "{}")],
+                finish_reason="tool_calls",
+            )],
+        ]
+
+        events = list(
+            Agent(llm=mock_llm, tools=[keep_going], max_iterations=2).run_stream("测试")
+        )
 
         assert events[-1]["type"] == "done"
         assert events[-1]["stop_reason"] == "max_iterations"
@@ -466,9 +899,7 @@ class TestAgentToolIsolation:
         second_model = Mock()
         second_model.chat_stream.side_effect = [
             [StreamChunk(
-                tool_call_id="call_1",
-                tool_name="first_only",
-                tool_args="{}",
+                tool_calls=[ToolCallDelta(0, "call_1", "first_only", "{}")],
                 finish_reason="tool_calls",
             )],
             [StreamChunk(content="[FINAL] second", finish_reason="stop")],
@@ -487,3 +918,192 @@ class TestAgentToolIsolation:
         assert "first_only" not in [schema["function"]["name"] for schema in second_schemas]
         assert second_events[-1]["trace"][0]["error_code"] == "unknown_tool"
         assert first_events[-1]["content"] == "first"
+
+
+def test_run_prepares_every_request_and_commits_completed_exchange() -> None:
+    @tool
+    def lookup(query: str) -> str:
+        return f"result for {query}"
+
+    policy = RecordingContextPolicy()
+    memory = InMemoryConversation()
+    model = ScriptedChatModel([
+        LLMResponse(
+            content="",
+            tool_calls=[ToolCall("call-1", "lookup", {"query": "python"})],
+        ),
+        LLMResponse(content="final answer", tool_calls=None),
+    ])
+
+    result = Agent(
+        llm=model,
+        tools=[lookup],
+        memory=memory,
+        context_policy=policy,
+    ).run("question")
+
+    assert result.stop_reason == "completed"
+    assert len(policy.calls) == 2
+    assert policy.calls[1][0][-1] == {
+        "role": "tool",
+        "tool_call_id": "call-1",
+        "content": "result for python",
+    }
+    assert memory.get_context() == [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "final answer"},
+    ]
+
+
+def test_run_context_overflow_stops_before_model_request() -> None:
+    model = ScriptedChatModel([])
+    memory = InMemoryConversation()
+
+    result = Agent(
+        llm=model,
+        tools=[],
+        memory=memory,
+        context_policy=RejectingContextPolicy(),
+    ).run("sensitive question")
+
+    assert result.stop_reason == "context_budget_exceeded"
+    assert result.error == "request context requires 12 tokens; budget is 10"
+    assert model.calls == []
+    assert memory.get_context() == []
+
+
+def test_run_non_success_and_final_hook_failure_do_not_write_memory() -> None:
+    memory = InMemoryConversation()
+    failing_model = Mock()
+    failing_model.chat.side_effect = ModelRequestError("offline")
+
+    result = Agent(llm=failing_model, tools=[], memory=memory).run("question")
+
+    assert result.stop_reason == "model_error"
+    assert memory.get_context() == []
+
+    model = ScriptedChatModel([LLMResponse(content="answer", tool_calls=None)])
+    agent = Agent(
+        llm=model,
+        tools=[],
+        memory=memory,
+        hooks={"on_final": Mock(side_effect=RuntimeError("hook failed"))},
+    )
+    with pytest.raises(RuntimeError, match="hook failed"):
+        agent.run("question")
+    assert memory.get_context() == []
+
+
+def test_run_max_iterations_does_not_write_memory() -> None:
+    @tool
+    def keep_going() -> str:
+        return "continue"
+
+    memory = InMemoryConversation()
+    model = ScriptedChatModel([
+        LLMResponse(
+            content="",
+            tool_calls=[ToolCall("call-1", "keep_going", {})],
+        ),
+    ])
+
+    result = Agent(
+        llm=model,
+        tools=[keep_going],
+        max_iterations=1,
+        memory=memory,
+    ).run("question")
+
+    assert result.stop_reason == "max_iterations"
+    assert memory.get_context() == []
+
+
+def test_run_stream_prepares_every_request_and_commits_once() -> None:
+    @tool
+    def lookup(query: str) -> str:
+        return f"result for {query}"
+
+    policy = RecordingContextPolicy()
+    memory = InMemoryConversation()
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "call-1", "lookup", '{"query":"python"}')],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(content="final answer", finish_reason="stop")],
+    ])
+
+    events = list(Agent(
+        llm=model,
+        tools=[lookup],
+        memory=memory,
+        context_policy=policy,
+    ).run_stream("question"))
+
+    assert events[-1]["stop_reason"] == "completed"
+    assert len(policy.calls) == 2
+    assert policy.calls[1][0][-1]["tool_call_id"] == "call-1"
+    assert memory.get_context() == [
+        {"role": "user", "content": "question"},
+        {"role": "assistant", "content": "final answer"},
+    ]
+
+
+def test_run_stream_context_overflow_yields_done_without_model_request() -> None:
+    model = ScriptedStreamingChatModel([], [])
+    memory = InMemoryConversation()
+
+    events = list(Agent(
+        llm=model,
+        tools=[],
+        memory=memory,
+        context_policy=RejectingContextPolicy(),
+    ).run_stream("sensitive question"))
+
+    assert [event["type"] for event in events] == ["iteration_start", "done"]
+    assert events[-1]["stop_reason"] == "context_budget_exceeded"
+    assert events[-1]["error"] == "request context requires 12 tokens; budget is 10"
+    assert model.stream_calls == []
+    assert memory.get_context() == []
+
+
+def test_abandoned_stream_does_not_write_memory() -> None:
+    memory = InMemoryConversation()
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="answer", finish_reason="stop")]],
+    )
+    stream = Agent(llm=model, tools=[], memory=memory).run_stream("question")
+
+    assert next(stream)["type"] == "iteration_start"
+    stream.close()
+
+    assert memory.get_context() == []
+
+
+@pytest.mark.parametrize("finish_reason", ["length", "content_filter"])
+def test_incomplete_stream_does_not_write_memory(finish_reason: str) -> None:
+    memory = InMemoryConversation()
+    model = ScriptedStreamingChatModel(
+        [],
+        [[StreamChunk(content="partial", finish_reason=finish_reason)]],
+    )
+
+    events = list(Agent(llm=model, tools=[], memory=memory).run_stream("question"))
+
+    assert events[-1]["stop_reason"] == "incomplete"
+    assert memory.get_context() == []
+
+
+def test_memory_write_failure_is_not_reported_as_model_error() -> None:
+    class FailingMemory:
+        def get_context(self):
+            return []
+
+        def add_messages(self, messages):
+            raise RuntimeError("memory write failed")
+
+    model = ScriptedChatModel([LLMResponse(content="answer", tool_calls=None)])
+
+    with pytest.raises(RuntimeError, match="memory write failed"):
+        Agent(llm=model, tools=[], memory=FailingMemory()).run("question")

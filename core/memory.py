@@ -2,9 +2,74 @@
 
 from __future__ import annotations
 
+import copy
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
+
+_MESSAGE_ROLES = {"system", "user", "assistant", "tool"}
+
+
+class ConversationMemory(Protocol):
+    """Stored conversation history used by an Agent."""
+
+    def get_context(self) -> list[dict[str, Any]]: ...
+
+    def add_messages(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+    ) -> None: ...
+
+    def clear(self) -> None: ...
+
+
+class InMemoryConversation:
+    """Conversation history with validated atomic batch writes."""
+
+    def __init__(
+        self,
+        initial_messages: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        self._messages: list[dict[str, Any]] = []
+        if initial_messages:
+            self.add_messages(initial_messages)
+
+    def add_messages(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+    ) -> None:
+        copied = [
+            _copy_conversation_message(message, index)
+            for index, message in enumerate(messages)
+        ]
+        self._messages.extend(copied)
+
+    def get_context(self) -> list[dict[str, Any]]:
+        return copy.deepcopy(self._messages)
+
+    def clear(self) -> None:
+        self._messages.clear()
+
+    def __len__(self) -> int:
+        return len(self._messages)
+
+
+def _copy_conversation_message(
+    message: Mapping[str, Any],
+    index: int,
+) -> dict[str, Any]:
+    if not isinstance(message, Mapping):
+        raise TypeError(f"message at index {index} must be a mapping")
+    copied = copy.deepcopy(dict(message))
+    role = copied.get("role")
+    if role not in _MESSAGE_ROLES:
+        raise ValueError(f"message at index {index} has invalid role")
+    if "content" not in copied:
+        raise ValueError(f"message at index {index} is missing content")
+    if not isinstance(copied["content"], str) and copied["content"] is not None:
+        raise TypeError(f"message at index {index} has invalid content")
+    return copied
 
 # ─── 消息模型 ───────────────────────────────────────────────
 

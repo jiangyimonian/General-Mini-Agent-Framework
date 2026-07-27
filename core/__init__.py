@@ -1,10 +1,41 @@
-from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, TraceEvent
-from .llm import LLM, ChatModel, LLMConfig, LLMResponse, ModelRequestError
+from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, StreamEvent, TraceEvent
+from .context import (
+    ApproximateTokenCounter,
+    ContextBudgetExceeded,
+    ContextPolicy,
+    SummarizingContext,
+    TokenBudgetContext,
+    TokenCounter,
+)
+from .llm import (
+    LLM,
+    ChatModel,
+    LLMConfig,
+    LLMResponse,
+    ModelRequestError,
+    StreamChunk,
+    StreamingChatModel,
+    ToolCallDelta,
+)
+from .long_term_memory import (
+    ChromaMemoryStore,
+    InMemoryLongTermStore,
+    LongTermMemoryStore,
+    MemoryNamespace,
+    MemoryQuery,
+    MemoryRecord,
+    MemoryRecordNotFound,
+    MemoryScope,
+    MemoryStoreError,
+    MetadataValue,
+    build_memory_context,
+    create_memory_record,
+)
+from .memory import ConversationMemory, InMemoryConversation
 from .tools import Tool, ToolRegistry, tool
 
 # isort: split
-# Experimental compatibility exports; not part of the 0.1.0 stable API.
-from .llm import StreamChunk
+# Experimental compatibility exports; not part of the stable API.
 from .memory import LongTermMemory, SlidingWindowMemory
 
 __all__ = [
@@ -13,6 +44,9 @@ __all__ = [
     "LLMConfig",
     "LLMResponse",
     "ModelRequestError",
+    "StreamChunk",
+    "StreamingChatModel",
+    "ToolCallDelta",
     "tool",
     "Tool",
     "ToolRegistry",
@@ -20,8 +54,28 @@ __all__ = [
     "AgentConfig",
     "AgentResult",
     "AgentStopReason",
+    "StreamEvent",
     "TraceEvent",
-    "StreamChunk",
+    "TokenCounter",
+    "ApproximateTokenCounter",
+    "ContextPolicy",
+    "TokenBudgetContext",
+    "SummarizingContext",
+    "ContextBudgetExceeded",
+    "ConversationMemory",
+    "InMemoryConversation",
+    "MemoryScope",
+    "MetadataValue",
+    "MemoryNamespace",
+    "MemoryRecord",
+    "MemoryQuery",
+    "LongTermMemoryStore",
+    "MemoryStoreError",
+    "MemoryRecordNotFound",
+    "InMemoryLongTermStore",
+    "ChromaMemoryStore",
+    "create_memory_record",
+    "build_memory_context",
     "SlidingWindowMemory",
     "LongTermMemory",
 ]

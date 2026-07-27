@@ -2,7 +2,76 @@
 
 import pytest
 
-from core.memory import SlidingWindowMemory
+from core.memory import InMemoryConversation, SlidingWindowMemory
+
+
+class TestInMemoryConversation:
+    def test_appends_batch_atomically(self):
+        memory = InMemoryConversation()
+
+        memory.add_messages([
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "answer"},
+        ])
+
+        assert memory.get_context() == [
+            {"role": "user", "content": "question"},
+            {"role": "assistant", "content": "answer"},
+        ]
+
+    def test_invalid_batch_does_not_partially_append(self):
+        memory = InMemoryConversation([
+            {"role": "user", "content": "existing"},
+        ])
+
+        with pytest.raises(ValueError, match="role"):
+            memory.add_messages([
+                {"role": "assistant", "content": "valid"},
+                {"role": "invalid", "content": "bad"},
+            ])
+
+        assert memory.get_context() == [
+            {"role": "user", "content": "existing"},
+        ]
+
+    def test_constructor_and_snapshots_are_defensive_copies(self):
+        initial = [{
+            "role": "assistant",
+            "content": "answer",
+            "metadata": {"source": "initial"},
+        }]
+        memory = InMemoryConversation(initial)
+
+        initial[0]["metadata"]["source"] = "mutated input"
+        snapshot = memory.get_context()
+        snapshot[0]["metadata"]["source"] = "mutated snapshot"
+
+        assert memory.get_context()[0]["metadata"]["source"] == "initial"
+
+    def test_preserves_structured_message_fields(self):
+        memory = InMemoryConversation()
+        message = {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "lookup", "arguments": "{}"},
+            }],
+        }
+
+        memory.add_messages([message])
+
+        assert memory.get_context() == [message]
+
+    def test_clear_and_instance_state_are_isolated(self):
+        first = InMemoryConversation([{"role": "user", "content": "one"}])
+        second = InMemoryConversation([{"role": "user", "content": "two"}])
+
+        first.clear()
+
+        assert first.get_context() == []
+        assert second.get_context() == [{"role": "user", "content": "two"}]
 
 
 class TestSlidingWindowMemory:

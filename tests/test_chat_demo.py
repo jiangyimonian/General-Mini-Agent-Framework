@@ -1,24 +1,28 @@
-"""Tests for the interactive chat demo's short-term memory helpers."""
+"""Tests for the interactive chat demo's stable memory integration."""
 
-from core.memory import SlidingWindowMemory
-from demo.chat import clear_context, record_exchange
+from pathlib import Path
+
+from core.memory import InMemoryConversation
+from demo.chat import clear_context
 
 
-def test_record_exchange_adds_one_user_assistant_pair() -> None:
-    memory = SlidingWindowMemory(window_size=4)
+def test_chat_demo_uses_automatic_memory_writeback_and_context_budget() -> None:
+    source = Path("demo/chat.py").read_text(encoding="utf-8")
 
-    record_exchange(memory, "first question", "first answer")
-
-    assert memory.get_context() == [
-        {"role": "user", "content": "first question"},
-        {"role": "assistant", "content": "first answer"},
-    ]
+    assert "InMemoryConversation" in source
+    assert "TokenBudgetContext" in source
+    assert "LLM_CONTEXT_WINDOW" in source
+    assert "LLM_RESERVED_OUTPUT_TOKENS" in source
+    assert 'os.environ.get("LLM_CONTEXT_WINDOW", "65536")' not in source
+    assert 'os.environ.get("LLM_RESERVED_OUTPUT_TOKENS", "4096")' not in source
+    assert "record_exchange(" not in source
 
 
 def test_clear_context_removes_recorded_messages() -> None:
-    memory = SlidingWindowMemory(window_size=4)
-    memory.add("user", "old question")
-    memory.add("assistant", "old answer")
+    memory = InMemoryConversation([
+        {"role": "user", "content": "old question"},
+        {"role": "assistant", "content": "old answer"},
+    ])
 
     clear_context(memory)
 

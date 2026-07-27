@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-07-27
+
+### 新增
+
+- 结构化工具执行结果：`ToolExecutionResult.value` 保留合法 JSON 值，`content` 使用确定性紧凑序列化
+- 实例级工具授权策略：`ToolAuthorizationPolicy` 协议、`ToolAuthorizationRequest` 和 `ToolAuthorizationDecision`
+- `Agent` 构造器支持 `tool_authorization_policy` 参数，策略注入注册表
+- `JSONValue` 类型别名、`permission_denied` 和 `authorization_error` 错误码
+- fail-closed 授权语义：策略拒绝或异常时工具函数不被调用
+
+### 变更
+
+- 字符串工具结果保持原样传递给模型，不再 JSON 序列化
+- 合法 JSON 工具结果使用 `json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False, separators=(",", ":"))` 生成确定性 `content`
+- ROADMAP 删除已稳定的能力条目
+
 ## [0.4.1] - 2026-07-27
 
 ### 新增

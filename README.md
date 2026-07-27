@@ -1,13 +1,13 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.4.1`
-在稳定的单 Agent 执行、上下文与显式长期记忆之上，增加隔离、确定性的多 Agent
-参与者协作和独立 Judge 裁决。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.5.0`
+在稳定的单 Agent 执行、上下文与显式长期记忆之上，增加结构化工具结果、实例级
+工具授权策略和 fail-closed 授权语义。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.4.1 稳定能力
+## 0.5.0 稳定能力
 
 - OpenAI 兼容 Chat Completions 客户端
 - Python 函数到 JSON Schema 的工具定义
@@ -29,6 +29,8 @@ General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核�
 - 有序多 Agent 参与者轮次和独立 Judge 最终裁决
 - 真正生效的 `max_rounds` 与显式收敛回调
 - `Debate.run()` 与 `Debate.run_stream()` 的运行隔离和确定性失败边界
+- 结构化工具结果：合法 JSON 值保留在 `value`，确定性紧凑序列化为 `content`
+- 实例级工具授权策略：fail-closed，拒绝或异常时不调用工具函数
 
 ## 实验性模块
 
@@ -142,11 +144,12 @@ python demo/debate_demo.py
 
 ## 稳定 API
 
-`0.4.1` 的稳定公共入口由 `core` 包导出：
+`0.5.0` 的稳定公共入口由 `core` 包导出：
 
 - 模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
-- 工具：`tool`、`Tool`、`ToolRegistry`
+- 工具：`tool`、`Tool`、`ToolRegistry`、`ToolExecutionResult`、`JSONValue`、
+  `ToolAuthorizationRequest`、`ToolAuthorizationDecision`、`ToolAuthorizationPolicy`
 - Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
 - 上下文：`TokenCounter`、`ApproximateTokenCounter`、`ContextPolicy`、
   `TokenBudgetContext`、`SummarizingContext`、`ContextBudgetExceeded`
@@ -219,6 +222,51 @@ ChromaDB 仍是首次操作时才加载的可选依赖。
 `core.trace` 仍属于实验性模块。`SummarizingContext` 必须由调用方
 显式提供摘要函数，不会在后台复用主模型；摘要失败时回退到确定性裁剪。
 
+### 结构化工具结果
+
+工具函数返回字符串时，`content` 保持原样传递给模型。返回合法 JSON 值（`dict`、`list`、
+`int`、`float`、`bool`、`None`）时，`ToolExecutionResult.value` 保留原始值，`content`
+使用确定性紧凑 JSON 序列化：
+
+```python
+from core import ToolExecutionResult, tool
+
+@tool
+def fetch() -> dict:
+    return {"items": [1, True, None], "status": "ok"}
+
+# 执行后 result.content == '{"items":[1,true,null],"status":"ok"}'
+# result.value == {"items": [1, True, None], "status": "ok"}
+```
+
+序列化使用 `json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False, separators=(",", ":"))`。
+非字符串键、`NaN`、`Infinity` 和不可序列化对象返回 `serialization_failed` 错误码，
+不会退回 `repr()` 或暴露内存地址。
+
+### 工具授权
+
+`ToolAuthorizationPolicy` 协议在参数绑定成功后、工具函数执行前完成授权检查。
+策略拒绝返回 `permission_denied`，策略异常返回 `authorization_error`，两者均为
+fail-closed：工具函数不会被调用。
+
+```python
+from core import Agent, ToolAuthorizationDecision, ToolAuthorizationRequest
+
+class AllowSafeOnly:
+    def authorize(self, request: ToolAuthorizationRequest):
+        if request.name == "safe_query":
+            return ToolAuthorizationDecision(allowed=True)
+        return ToolAuthorizationDecision(allowed=False, reason="unsafe")
+
+agent = Agent(
+    llm=model,
+    tools=[safe_query, dangerous_action],
+    tool_authorization_policy=AllowSafeOnly(),
+)
+```
+
+授权策略属于 Agent 实例，不使用进程级全局注册表。未知工具和无效参数不会触发授权检查。
+
 ### 多 Agent 协作
 
 `Debate` 接收有序参与者列表，并将 Judge 单独配置。参与者完成一轮后才检查调用方提供的
@@ -244,7 +292,7 @@ print(result.verdict)
 `no_judge`。`Debate.run_stream()` 使用 Debate 级轮次、发言者、Agent 包装事件和单一
 `debate_done` 终态，执行顺序与同步路径一致。
 
-`0.4.1` 不包含并行参与者、投票、动态角色、异步 API 或通用工作流图。
+`0.5.0` 不包含并行参与者、投票、动态角色、异步 API 或通用工作流图。
 
 ## 多 Agent 与轨迹示例
 

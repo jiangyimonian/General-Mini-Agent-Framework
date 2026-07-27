@@ -8,9 +8,8 @@ import re
 from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Protocol, Union, get_args, get_origin
 from types import UnionType
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Protocol, Union, get_args, get_origin
 
 TYPE_MAP = {
     int: "integer",

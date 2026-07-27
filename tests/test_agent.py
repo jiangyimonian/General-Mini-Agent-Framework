@@ -1151,7 +1151,6 @@ class TestAgentToolAuthorization:
 
     def test_streaming_agent_uses_deterministic_json_observation(self) -> None:
         """Structured tool results use identical JSON across observation and trace."""
-        from core.tools import ToolAuthorizationPolicy
 
         @tool
         def fetch() -> dict[str, Any]:

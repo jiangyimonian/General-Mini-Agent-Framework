@@ -2,9 +2,9 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.4.1`
-在稳定的单 Agent 执行、显式上下文和长期记忆之上，增加隔离且确定性的多 Agent
-参与者轮次与 Judge 裁决。
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.5.0`
+在稳定的单 Agent 执行、显式上下文和长期记忆之上，增加结构化工具结果和实例级、
+fail-closed 的工具授权策略。
 
 ## 设计原则
 
@@ -15,9 +15,9 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.4.1 稳定边界
+## 0.5.0 稳定边界
 
-`0.4.1` 包含并保持 `0.3.1` 的全部模型、工具、Agent、上下文和记忆契约。
+`0.5.0` 包含并保持 `0.4.1` 的全部模型、工具、Agent、上下文和记忆契约。
 
 ### `core/context.py`
 
@@ -54,6 +54,16 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 - 根据函数签名生成 JSON Schema
 - 通过 `ToolRegistry` 提供实例级注册和查询
 - 校验参数并返回结构化工具执行结果
+- 结构化结果保留合法 JSON 值，确定性序列化为 `content`
+- 授权策略在参数绑定后、工具执行前完成检查
+
+`ToolExecutionResult.value` 保留合法 JSON 值（`dict`、`list`、`int`、`float`、
+`bool`、`None`），`content` 使用紧凑确定性 JSON。字符串结果保持原样。
+非法 JSON 值返回 `serialization_failed`。
+
+`ToolAuthorizationPolicy` 协议定义 `authorize(request)` 方法。策略拒绝返回
+`permission_denied`，策略异常返回 `authorization_error`，两者均为 fail-closed。
+未知工具和无效参数不触发授权检查。
 
 工具模块不决定调用时机，不使用进程级可变注册表。
 
@@ -121,11 +131,12 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 
 ## 公共接口
 
-`core/__init__.py` 中的 `0.4.1` 稳定导出为：
+`core/__init__.py` 中的 `0.5.0` 稳定导出为：
 
 - `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
-- `tool`、`Tool`、`ToolRegistry`
+- `tool`、`Tool`、`ToolRegistry`、`ToolExecutionResult`、`JSONValue`、
+  `ToolAuthorizationRequest`、`ToolAuthorizationDecision`、`ToolAuthorizationPolicy`
 - `Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
 - `TokenCounter`、`ApproximateTokenCounter`、`ContextPolicy`、`TokenBudgetContext`、
   `SummarizingContext`、`ContextBudgetExceeded`

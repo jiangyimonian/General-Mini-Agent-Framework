@@ -37,7 +37,7 @@
 - Produces: `MemoryQuery(text, namespace, scope="exact", top_k=5, metadata_filter={}, max_context_tokens=512)`
 - Produces: `LongTermMemoryStore`, `MemoryStoreError`, and `MemoryRecordNotFound`
 
-- [ ] **Step 1: Write three failing contract tests**
+- [x] **Step 1: Write three failing contract tests**
 
 ```python
 def test_namespace_requires_three_non_empty_identifiers() -> None:
@@ -62,18 +62,18 @@ def test_record_factory_generates_utc_identity_and_defensive_metadata() -> None:
     assert record.updated_at == record.created_at
 ```
 
-- [ ] **Step 2: Run the contract tests and confirm missing-module failure**
+- [x] **Step 2: Run the contract tests and confirm missing-module failure**
 
 Run: `python -m pytest tests/test_long_term_memory.py -v`
 Expected: collection FAIL because `core.long_term_memory` is missing.
 
-- [ ] **Step 3: Implement validated dataclasses, errors, factory, and protocol**
+- [x] **Step 3: Implement validated dataclasses, errors, factory, and protocol**
 
 Use `field(default_factory=dict)`, deep-copy mutable metadata in `__post_init__`, reject reserved
 keys prefixed with `_gmf_`, generate `uuid4()` IDs, and use `datetime.now(timezone.utc)`. The protocol
 contains the six methods approved in the design and no backend details.
 
-- [ ] **Step 4: Run focused tests and commit**
+- [x] **Step 4: Run focused tests and commit**
 
 Run: `python -m pytest tests/test_long_term_memory.py -v`
 Expected: 3 tests PASS.

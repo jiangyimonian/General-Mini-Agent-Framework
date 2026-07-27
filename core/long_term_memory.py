@@ -3,17 +3,23 @@
 from __future__ import annotations
 
 import copy
+import os
 import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 MemoryScope = Literal["exact", "user_agent", "user"]
 MetadataValue = str | int | float | bool
 _MEMORY_SCOPES = {"exact", "user_agent", "user"}
 _RESERVED_METADATA_PREFIX = "_gmf_"
+_USER_ID_KEY = "_gmf_user_id"
+_CONVERSATION_ID_KEY = "_gmf_conversation_id"
+_AGENT_ID_KEY = "_gmf_agent_id"
+_CREATED_AT_KEY = "_gmf_created_at"
+_UPDATED_AT_KEY = "_gmf_updated_at"
 
 
 @dataclass(frozen=True)
@@ -215,6 +221,162 @@ class InMemoryLongTermStore:
         return len(matching_ids)
 
 
+class ChromaMemoryStore:
+    """Persistent ChromaDB adapter with explicit namespace boundaries."""
+
+    def __init__(
+        self,
+        persist_dir: str = "~/.agent_memory",
+        collection_name: str = "agent_memory",
+    ) -> None:
+        self.persist_dir = os.path.expanduser(persist_dir)
+        self.collection_name = collection_name
+        self._client: Any = None
+        self._collection: Any = None
+
+    def store(
+        self,
+        content: str,
+        namespace: MemoryNamespace,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> MemoryRecord:
+        record = create_memory_record(content, namespace, metadata)
+        collection = self._ensure_collection("store")
+        try:
+            collection.add(
+                ids=[record.id],
+                documents=[record.content],
+                metadatas=[_record_metadata(record)],
+            )
+        except Exception as exc:
+            raise MemoryStoreError("store", backend="chroma") from exc
+        return copy.deepcopy(record)
+
+    def get(
+        self,
+        record_id: str,
+        namespace: MemoryNamespace,
+    ) -> MemoryRecord | None:
+        collection = self._ensure_collection("get")
+        try:
+            rows = collection.get(
+                ids=[record_id],
+                where=_build_where(namespace, "exact", {}),
+                include=["documents", "metadatas"],
+            )
+            return _record_from_get_rows(rows)
+        except Exception as exc:
+            raise MemoryStoreError("get", backend="chroma") from exc
+
+    def query(self, query: MemoryQuery) -> list[MemoryRecord]:
+        collection = self._ensure_collection("query")
+        try:
+            rows = collection.query(
+                query_texts=[query.text],
+                n_results=query.top_k,
+                where=_build_where(
+                    query.namespace,
+                    query.scope,
+                    query.metadata_filter,
+                ),
+            )
+            return _records_from_query_rows(rows)
+        except Exception as exc:
+            raise MemoryStoreError("query", backend="chroma") from exc
+
+    def update(
+        self,
+        record_id: str,
+        namespace: MemoryNamespace,
+        *,
+        content: str | None = None,
+        metadata: Mapping[str, MetadataValue] | None = None,
+    ) -> MemoryRecord:
+        collection = self._ensure_collection("update")
+        try:
+            rows = collection.get(
+                ids=[record_id],
+                where=_build_where(namespace, "exact", {}),
+                include=["documents", "metadatas"],
+            )
+            current = _record_from_get_rows(rows)
+            if current is None:
+                raise MemoryRecordNotFound(record_id)
+            updated = MemoryRecord(
+                id=current.id,
+                content=current.content if content is None else content.strip(),
+                namespace=current.namespace,
+                metadata=current.metadata if metadata is None else _copy_metadata(metadata),
+                created_at=current.created_at,
+                updated_at=datetime.now(UTC),
+            )
+            collection.update(
+                ids=[updated.id],
+                documents=[updated.content],
+                metadatas=[_record_metadata(updated)],
+            )
+        except MemoryRecordNotFound:
+            raise
+        except Exception as exc:
+            raise MemoryStoreError("update", backend="chroma") from exc
+        return copy.deepcopy(updated)
+
+    def delete(self, record_id: str, namespace: MemoryNamespace) -> bool:
+        collection = self._ensure_collection("delete")
+        try:
+            rows = collection.get(
+                ids=[record_id],
+                where=_build_where(namespace, "exact", {}),
+                include=[],
+            )
+            if not rows.get("ids"):
+                return False
+            collection.delete(ids=[record_id])
+        except Exception as exc:
+            raise MemoryStoreError("delete", backend="chroma") from exc
+        return True
+
+    def clear(
+        self,
+        namespace: MemoryNamespace,
+        *,
+        scope: MemoryScope = "exact",
+    ) -> int:
+        if scope not in _MEMORY_SCOPES:
+            raise ValueError(f"unsupported memory scope: {scope}")
+        collection = self._ensure_collection("clear")
+        try:
+            rows = collection.get(
+                where=_build_where(namespace, scope, {}),
+                include=[],
+            )
+            record_ids = rows.get("ids") or []
+            if record_ids:
+                collection.delete(ids=record_ids)
+        except Exception as exc:
+            raise MemoryStoreError("clear", backend="chroma") from exc
+        return len(record_ids)
+
+    def _ensure_collection(self, operation: str) -> Any:
+        if self._collection is not None:
+            return self._collection
+        try:
+            import chromadb
+        except ImportError:
+            raise ImportError(
+                "ChromaDB is optional; install it with: pip install chromadb"
+            ) from None
+        try:
+            self._client = chromadb.PersistentClient(path=self.persist_dir)
+            self._collection = self._client.get_or_create_collection(
+                name=self.collection_name,
+                metadata={"hnsw:space": "cosine"},
+            )
+        except Exception as exc:
+            raise MemoryStoreError(operation, backend="chroma") from exc
+        return self._collection
+
+
 def create_memory_record(
     content: str,
     namespace: MemoryNamespace,
@@ -269,3 +431,81 @@ def _namespace_matches(
 
 def _tokenize(text: str) -> set[str]:
     return set(re.findall(r"\w+", text.casefold(), flags=re.UNICODE))
+
+
+def _build_where(
+    namespace: MemoryNamespace,
+    scope: MemoryScope,
+    metadata_filter: Mapping[str, MetadataValue],
+) -> dict[str, Any]:
+    conditions: list[dict[str, MetadataValue]] = [
+        {_USER_ID_KEY: namespace.user_id},
+    ]
+    if scope != "user":
+        conditions.append({_AGENT_ID_KEY: namespace.agent_id})
+    if scope == "exact":
+        conditions.append({_CONVERSATION_ID_KEY: namespace.conversation_id})
+    conditions.extend({key: value} for key, value in metadata_filter.items())
+    if len(conditions) == 1:
+        return conditions[0]
+    return {"$and": conditions}
+
+
+def _record_metadata(record: MemoryRecord) -> dict[str, MetadataValue]:
+    return {
+        _USER_ID_KEY: record.namespace.user_id,
+        _CONVERSATION_ID_KEY: record.namespace.conversation_id,
+        _AGENT_ID_KEY: record.namespace.agent_id,
+        _CREATED_AT_KEY: record.created_at.isoformat(),
+        _UPDATED_AT_KEY: record.updated_at.isoformat(),
+        **record.metadata,
+    }
+
+
+def _record_from_get_rows(rows: Mapping[str, Any]) -> MemoryRecord | None:
+    ids = rows.get("ids") or []
+    if not ids:
+        return None
+    return _record_from_parts(
+        ids[0],
+        (rows.get("documents") or [None])[0],
+        (rows.get("metadatas") or [{}])[0],
+    )
+
+
+def _records_from_query_rows(rows: Mapping[str, Any]) -> list[MemoryRecord]:
+    ids = (rows.get("ids") or [[]])[0]
+    documents = (rows.get("documents") or [[]])[0]
+    metadatas = (rows.get("metadatas") or [[]])[0]
+    return [
+        _record_from_parts(record_id, document, metadata)
+        for record_id, document, metadata in zip(
+            ids,
+            documents,
+            metadatas,
+            strict=True,
+        )
+    ]
+
+
+def _record_from_parts(
+    record_id: str,
+    content: str,
+    stored_metadata: Mapping[str, MetadataValue],
+) -> MemoryRecord:
+    metadata = dict(stored_metadata)
+    namespace = MemoryNamespace(
+        str(metadata.pop(_USER_ID_KEY)),
+        str(metadata.pop(_CONVERSATION_ID_KEY)),
+        str(metadata.pop(_AGENT_ID_KEY)),
+    )
+    created_at = datetime.fromisoformat(str(metadata.pop(_CREATED_AT_KEY)))
+    updated_at = datetime.fromisoformat(str(metadata.pop(_UPDATED_AT_KEY)))
+    return MemoryRecord(
+        id=record_id,
+        content=content,
+        namespace=namespace,
+        metadata=metadata,
+        created_at=created_at,
+        updated_at=updated_at,
+    )

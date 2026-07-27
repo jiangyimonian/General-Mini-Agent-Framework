@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import builtins
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from core.long_term_memory import (
+    ChromaMemoryStore,
     InMemoryLongTermStore,
     MemoryNamespace,
     MemoryQuery,
@@ -14,6 +19,35 @@ from core.long_term_memory import (
 
 NAMESPACE = MemoryNamespace("user-1", "conversation-1", "agent-1")
 OTHER_CONVERSATION = MemoryNamespace("user-1", "conversation-2", "agent-1")
+
+
+class FakeCollection:
+    def __init__(self, query_rows=None) -> None:
+        self.query_rows = query_rows
+        self.last_where = None
+
+    def query(self, *, query_texts, n_results, where):
+        self.last_where = where
+        return self.query_rows
+
+
+def fake_chromadb(collection):
+    client = SimpleNamespace(get_or_create_collection=lambda **kwargs: collection)
+    return SimpleNamespace(PersistentClient=lambda **kwargs: client)
+
+
+RECORD_ROW = {
+    "ids": [["record-1"]],
+    "documents": [["prefers Python"]],
+    "metadatas": [[{
+        "_gmf_user_id": NAMESPACE.user_id,
+        "_gmf_conversation_id": NAMESPACE.conversation_id,
+        "_gmf_agent_id": NAMESPACE.agent_id,
+        "_gmf_created_at": "2026-07-27T00:00:00+00:00",
+        "_gmf_updated_at": "2026-07-27T00:00:00+00:00",
+        "kind": "preference",
+    }]],
+}
 
 
 @pytest.mark.parametrize(
@@ -102,3 +136,41 @@ def test_delete_clear_and_instances_are_isolated() -> None:
     first.store("two", OTHER_CONVERSATION)
     assert first.clear(NAMESPACE, scope="user_agent") == 2
     assert second.query(MemoryQuery("fact", NAMESPACE)) == []
+
+
+def test_chroma_is_loaded_only_on_first_operation(monkeypatch) -> None:
+    store = ChromaMemoryStore()
+    original_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name == "chromadb":
+            raise ImportError("missing")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked)
+    with pytest.raises(ImportError, match="pip install chromadb"):
+        store.store("fact", NAMESPACE)
+
+
+def test_chroma_query_translates_scope_and_exact_metadata(monkeypatch) -> None:
+    collection = FakeCollection(query_rows=RECORD_ROW)
+    monkeypatch.setitem(sys.modules, "chromadb", fake_chromadb(collection))
+    store = ChromaMemoryStore()
+
+    records = store.query(
+        MemoryQuery(
+            "python",
+            NAMESPACE,
+            scope="user_agent",
+            metadata_filter={"kind": "preference"},
+        )
+    )
+
+    assert records[0].content == "prefers Python"
+    assert collection.last_where == {
+        "$and": [
+            {"_gmf_user_id": NAMESPACE.user_id},
+            {"_gmf_agent_id": NAMESPACE.agent_id},
+            {"kind": "preference"},
+        ]
+    }

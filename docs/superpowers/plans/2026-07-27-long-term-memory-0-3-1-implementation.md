@@ -165,7 +165,7 @@ git commit -m "feat: add isolated in-memory long-term store"
 - Consumes: Task 1 records, query, errors, and store protocol
 - Produces: `ChromaMemoryStore(persist_dir="~/.agent_memory", collection_name="agent_memory")`
 
-- [ ] **Step 1: Add two failing adapter-boundary tests**
+- [x] **Step 1: Add two failing adapter-boundary tests**
 
 ```python
 def test_chroma_is_loaded_only_on_first_operation(monkeypatch) -> None:
@@ -195,19 +195,19 @@ def test_chroma_query_translates_scope_and_exact_metadata(monkeypatch) -> None:
     ]}
 ```
 
-- [ ] **Step 2: Run the focused file and confirm adapter failures**
+- [x] **Step 2: Run the focused file and confirm adapter failures**
 
 Run: `python -m pytest tests/test_long_term_memory.py -v`
 Expected: existing 7 PASS and new 2 FAIL.
 
-- [ ] **Step 3: Implement lazy client, metadata translation, CRUD, and sanitized errors**
+- [x] **Step 3: Implement lazy client, metadata translation, CRUD, and sanitized errors**
 
 Flatten namespace fields as `_gmf_user_id`, `_gmf_conversation_id`, `_gmf_agent_id`, and timestamps as
 ISO strings. Build Chroma `$and` filters for multiple exact conditions. Convert query rows back to
 records without exposing distances. Wrap backend exceptions as `MemoryStoreError(operation,
 backend="chroma")`; preserve the dedicated optional-dependency `ImportError` message.
 
-- [ ] **Step 4: Run focused tests and commit**
+- [x] **Step 4: Run focused tests and commit**
 
 Run: `python -m pytest tests/test_long_term_memory.py -v`
 Expected: 9 tests PASS.

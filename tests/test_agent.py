@@ -10,6 +10,12 @@ from conftest import ScriptedChatModel, ScriptedStreamingChatModel
 from core.agent import Agent
 from core.context import ContextBudgetExceeded
 from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
+from core.long_term_memory import (
+    MemoryNamespace,
+    MemoryQuery,
+    MemoryStoreError,
+    create_memory_record,
+)
 from core.memory import InMemoryConversation
 from core.tools import Tool, tool
 
@@ -26,6 +32,98 @@ class RecordingContextPolicy:
 class RejectingContextPolicy:
     def prepare(self, messages, *, tools=None):
         raise ContextBudgetExceeded(input_tokens=12, input_budget=10)
+
+
+LONG_TERM_NAMESPACE = MemoryNamespace("user-1", "conversation-1", "agent-1")
+LONG_TERM_QUERY = MemoryQuery("python", LONG_TERM_NAMESPACE)
+
+
+class RecordingStore:
+    def __init__(self, records) -> None:
+        self.records = records
+        self.queries = []
+        self.mutations = []
+
+    def query(self, query):
+        self.queries.append(query)
+        return self.records
+
+    def store(self, *args, **kwargs):
+        self.mutations.append("store")
+
+    def update(self, *args, **kwargs):
+        self.mutations.append("update")
+
+    def delete(self, *args, **kwargs):
+        self.mutations.append("delete")
+
+    def clear(self, *args, **kwargs):
+        self.mutations.append("clear")
+
+
+class FailOnAccessStore:
+    def __getattribute__(self, name):
+        if name.startswith("_"):
+            return object.__getattribute__(self, name)
+        raise AssertionError(f"unexpected long-term memory access: {name}")
+
+
+class FailingQueryStore:
+    def query(self, query):
+        raise MemoryStoreError("query", backend="test")
+
+
+def test_run_retrieves_once_and_keeps_long_term_store_read_only() -> None:
+    store = RecordingStore([
+        create_memory_record("prefers Python", LONG_TERM_NAMESPACE),
+    ])
+    model = ScriptedChatModel([LLMResponse("done", None)])
+
+    Agent(model, long_term_memory=store).run(
+        "question",
+        memory_query=LONG_TERM_QUERY,
+    )
+
+    assert store.queries == [LONG_TERM_QUERY]
+    assert "prefers Python" in model.calls[0][0][1]["content"]
+    assert store.mutations == []
+
+
+def test_run_without_query_never_accesses_long_term_store() -> None:
+    model = ScriptedChatModel([LLMResponse("done", None)])
+
+    Agent(model, long_term_memory=FailOnAccessStore()).run("question")
+
+    assert model.calls
+
+
+def test_memory_error_stops_sync_run_before_model_access() -> None:
+    model = ScriptedChatModel([])
+
+    result = Agent(model, long_term_memory=FailingQueryStore()).run(
+        "question",
+        memory_query=LONG_TERM_QUERY,
+    )
+
+    assert result.stop_reason == "memory_error"
+    assert model.calls == []
+
+
+def test_stream_retrieval_and_memory_error_match_sync_contract() -> None:
+    memory = InMemoryConversation()
+    model = ScriptedStreamingChatModel([], [])
+
+    events = list(
+        Agent(
+            model,
+            memory=memory,
+            long_term_memory=FailingQueryStore(),
+        ).run_stream("question", memory_query=LONG_TERM_QUERY)
+    )
+
+    assert events[-1]["stop_reason"] == "memory_error"
+    assert model.stream_calls == []
+    assert memory.get_context() == []
 
 
 @pytest.mark.parametrize(

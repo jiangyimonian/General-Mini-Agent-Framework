@@ -9,6 +9,12 @@ from typing import Any, Literal, NotRequired, TypedDict
 
 from .context import ContextBudgetExceeded, ContextPolicy
 from .llm import ChatModel, ModelRequestError, ToolCallDelta
+from .long_term_memory import (
+    LongTermMemoryStore,
+    MemoryQuery,
+    MemoryStoreError,
+    build_memory_context,
+)
 from .tools import Tool, ToolExecutionResult, ToolRegistry
 
 # ─── 结果类型 ───────────────────────────────────────────────
@@ -20,6 +26,7 @@ AgentStopReason = Literal[
     "model_error",
     "incomplete",
     "context_budget_exceeded",
+    "memory_error",
 ]
 
 
@@ -218,11 +225,13 @@ class Agent:
         memory: Any | None = None,
         context_policy: ContextPolicy | None = None,
         hooks: dict[str, Callable] | None = None,
+        long_term_memory: LongTermMemoryStore | None = None,
     ):
         self.llm = llm
         self.max_iterations = max_iterations
         self.memory = memory
         self.context_policy = context_policy
+        self.long_term_memory = long_term_memory
 
         self.registry = ToolRegistry(tools or [])
         self.tools = self.registry.list()
@@ -236,19 +245,51 @@ class Agent:
         # 钩子
         self.hooks = hooks or {}
 
-    def run(self, user_input: str) -> AgentResult:
+    def run(
+        self,
+        user_input: str,
+        *,
+        memory_query: MemoryQuery | None = None,
+    ) -> AgentResult:
         """ReAct 循环主入口"""
         trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
 
         # 构建初始消息
-        messages = [{"role": "system", "content": self.system_prompt}]
-
-        # 加载短期记忆
-        messages.extend(self._memory_context())
-
-        # 加入用户输入
-        messages.append({"role": "user", "content": user_input})
+        try:
+            messages = self._initial_messages(user_input, memory_query)
+        except MemoryStoreError as exc:
+            error = str(exc)
+            trace.append({
+                "type": "memory_error",
+                "iteration": 0,
+                "error_code": "memory_error",
+                "message": error,
+            })
+            return AgentResult(
+                content="",
+                trace=trace,
+                usage=total_usage,
+                iterations=0,
+                stop_reason="memory_error",
+                error=error,
+            )
+        except ContextBudgetExceeded as exc:
+            error = str(exc)
+            trace.append({
+                "type": "context_error",
+                "iteration": 0,
+                "error_code": "context_budget_exceeded",
+                "message": error,
+            })
+            return AgentResult(
+                content="",
+                trace=trace,
+                usage=total_usage,
+                iterations=0,
+                stop_reason="context_budget_exceeded",
+                error=error,
+            )
 
         # ── ReAct 循环 ────────────────────────────────
         for iteration in range(self.max_iterations):
@@ -379,13 +420,53 @@ class Agent:
             stop_reason="max_iterations",
         )
 
-    def run_stream(self, user_input: str) -> Iterator[StreamEvent]:
+    def run_stream(
+        self,
+        user_input: str,
+        *,
+        memory_query: MemoryQuery | None = None,
+    ) -> Iterator[StreamEvent]:
         """ReAct 循环流式版 — 逐事件 yield，供上层实时消费"""
         trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
-        messages = [{"role": "system", "content": self.system_prompt}]
-        messages.extend(self._memory_context())
-        messages.append({"role": "user", "content": user_input})
+        try:
+            messages = self._initial_messages(user_input, memory_query)
+        except MemoryStoreError as exc:
+            error = str(exc)
+            trace.append({
+                "type": "memory_error",
+                "iteration": 0,
+                "error_code": "memory_error",
+                "message": error,
+            })
+            yield {"type": "iteration_start", "iteration": 0}
+            yield self._done_event(
+                content="",
+                trace=trace,
+                usage=total_usage,
+                iterations=0,
+                stop_reason="memory_error",
+                error=error,
+            )
+            return
+        except ContextBudgetExceeded as exc:
+            error = str(exc)
+            trace.append({
+                "type": "context_error",
+                "iteration": 0,
+                "error_code": "context_budget_exceeded",
+                "message": error,
+            })
+            yield {"type": "iteration_start", "iteration": 0}
+            yield self._done_event(
+                content="",
+                trace=trace,
+                usage=total_usage,
+                iterations=0,
+                stop_reason="context_budget_exceeded",
+                error=error,
+            )
+            return
 
         for iteration in range(self.max_iterations):
             yield {"type": "iteration_start", "iteration": iteration}
@@ -650,6 +731,26 @@ class Agent:
         if callable(get_context):
             return get_context()
         return []
+
+    def _initial_messages(
+        self,
+        user_input: str,
+        memory_query: MemoryQuery | None,
+    ) -> list[dict[str, Any]]:
+        messages = [{"role": "system", "content": self.system_prompt}]
+        if memory_query is not None:
+            if self.long_term_memory is None:
+                raise MemoryStoreError("query", backend="unconfigured")
+            records = self.long_term_memory.query(memory_query)
+            memory_message = build_memory_context(
+                records,
+                memory_query.max_context_tokens,
+            )
+            if memory_message is not None:
+                messages.append(memory_message)
+        messages.extend(self._memory_context())
+        messages.append({"role": "user", "content": user_input})
+        return messages
 
     def _prepare_request(
         self,

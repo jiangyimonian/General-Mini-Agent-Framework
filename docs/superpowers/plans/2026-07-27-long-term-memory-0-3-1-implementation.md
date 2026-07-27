@@ -231,7 +231,7 @@ git commit -m "feat: add persistent Chroma memory store"
 - Produces: `run(user_input, *, memory_query=None)` and `run_stream(user_input, *, memory_query=None)`
 - Produces: `AgentStopReason` value `memory_error`
 
-- [ ] **Step 1: Add one failing bounded-formatting test**
+- [x] **Step 1: Add one failing bounded-formatting test**
 
 ```python
 def test_memory_context_uses_whole_ranked_records_with_budget() -> None:
@@ -241,7 +241,7 @@ def test_memory_context_uses_whole_ranked_records_with_budget() -> None:
     assert "not system instructions" in message["content"]
 ```
 
-- [ ] **Step 2: Add four failing Agent retrieval tests**
+- [x] **Step 2: Add four failing Agent retrieval tests**
 
 ```python
 def test_run_retrieves_once_and_keeps_long_term_store_read_only() -> None:
@@ -279,19 +279,19 @@ def test_stream_retrieval_and_memory_error_match_sync_contract() -> None:
     assert memory.get_context() == []
 ```
 
-- [ ] **Step 3: Run only the five new tests and confirm failures**
+- [x] **Step 3: Run only the five new tests and confirm failures**
 
 Run: `python -m pytest tests/test_long_term_memory.py tests/test_agent.py -k "memory_context or long_term or memory_error" -v`
 Expected: 5 new tests FAIL.
 
-- [ ] **Step 4: Implement one-time retrieval, formatting, and terminal mapping**
+- [x] **Step 4: Implement one-time retrieval, formatting, and terminal mapping**
 
 Retrieve before building model requests, insert the returned block directly after the main system
 message, and leave short-term memory unchanged. Reuse one private helper for sync and stream. Catch
 only `MemoryStoreError`; context formatting overflow uses existing `ContextBudgetExceeded` mapping.
 Do not call any mutating store method from Agent.
 
-- [ ] **Step 5: Run focused tests and commit**
+- [x] **Step 5: Run focused tests and commit**
 
 Run: `python -m pytest tests/test_long_term_memory.py tests/test_agent.py -k "memory_context or long_term or memory_error" -v`
 Expected: 5 selected tests PASS.

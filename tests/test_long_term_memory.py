@@ -8,12 +8,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from core.context import ApproximateTokenCounter
 from core.long_term_memory import (
     ChromaMemoryStore,
     InMemoryLongTermStore,
     MemoryNamespace,
     MemoryQuery,
     MemoryRecordNotFound,
+    build_memory_context,
     create_memory_record,
 )
 
@@ -174,3 +176,16 @@ def test_chroma_query_translates_scope_and_exact_metadata(monkeypatch) -> None:
             {"kind": "preference"},
         ]
     }
+
+
+def test_memory_context_uses_whole_ranked_records_with_budget() -> None:
+    first = create_memory_record("first fact", NAMESPACE)
+    oversized = create_memory_record("oversized second fact " * 100, NAMESPACE)
+    first_only = build_memory_context([first], max_context_tokens=1_000)
+    budget = ApproximateTokenCounter().count([first_only])
+
+    message = build_memory_context([first, oversized], max_context_tokens=budget)
+
+    assert "first fact" in message["content"]
+    assert "oversized second fact" not in message["content"]
+    assert "not system instructions" in message["content"]

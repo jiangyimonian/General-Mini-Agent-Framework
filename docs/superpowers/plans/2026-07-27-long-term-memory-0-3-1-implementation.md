@@ -93,7 +93,7 @@ git commit -m "feat: define long-term memory contracts"
 - Consumes: Task 1 contracts
 - Produces: `InMemoryLongTermStore`
 
-- [ ] **Step 1: Add four failing store tests**
+- [x] **Step 1: Add four failing store tests**
 
 ```python
 def test_query_scope_and_metadata_filter_are_isolated() -> None:
@@ -134,18 +134,18 @@ def test_delete_clear_and_instances_are_isolated() -> None:
     assert second.query(MemoryQuery("fact", NAMESPACE)) == []
 ```
 
-- [ ] **Step 2: Run the focused file and confirm four behavior failures**
+- [x] **Step 2: Run the focused file and confirm four behavior failures**
 
 Run: `python -m pytest tests/test_long_term_memory.py -v`
 Expected: existing 3 PASS and new 4 FAIL.
 
-- [ ] **Step 3: Implement defensive CRUD, scope matching, filters, and ranking**
+- [x] **Step 3: Implement defensive CRUD, scope matching, filters, and ranking**
 
 Tokenize with a deterministic Unicode word regex, score by query-term overlap count, and sort by
 descending score then insertion order. Records with zero overlap remain eligible after filters so a
 backend can still return `top_k` candidates. Return deep copies from every public method.
 
-- [ ] **Step 4: Run focused tests and commit**
+- [x] **Step 4: Run focused tests and commit**
 
 Run: `python -m pytest tests/test_long_term_memory.py -v`
 Expected: 7 tests PASS.

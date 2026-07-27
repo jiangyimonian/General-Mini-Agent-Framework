@@ -5,8 +5,10 @@ from __future__ import annotations
 import pytest
 
 from core.long_term_memory import (
+    InMemoryLongTermStore,
     MemoryNamespace,
     MemoryQuery,
+    MemoryRecordNotFound,
     create_memory_record,
 )
 
@@ -51,3 +53,52 @@ def test_record_factory_generates_utc_identity_and_defensive_metadata() -> None:
     assert record.metadata == {"category": "preference"}
     assert record.created_at.tzinfo is not None
     assert record.updated_at == record.created_at
+
+
+def test_query_scope_and_metadata_filter_are_isolated() -> None:
+    store = InMemoryLongTermStore()
+    exact = store.store("prefers Python", NAMESPACE, {"kind": "preference"})
+    store.store("prefers Rust", OTHER_CONVERSATION, {"kind": "preference"})
+
+    assert store.query(
+        MemoryQuery(
+            "prefers",
+            NAMESPACE,
+            metadata_filter={"kind": "preference"},
+        )
+    ) == [exact]
+    assert len(
+        store.query(MemoryQuery("prefers", NAMESPACE, scope="user_agent"))
+    ) == 2
+
+
+def test_query_ranks_term_overlap_and_honors_top_k() -> None:
+    store = InMemoryLongTermStore()
+    store.store("likes Java", NAMESPACE)
+    best = store.store("likes Python typing", NAMESPACE)
+
+    assert store.query(MemoryQuery("Python typing", NAMESPACE, top_k=1)) == [best]
+
+
+def test_update_requires_exact_owner_and_preserves_identity() -> None:
+    store = InMemoryLongTermStore()
+    original = store.store("old", NAMESPACE)
+
+    updated = store.update(original.id, NAMESPACE, content="new")
+
+    assert (updated.id, updated.created_at) == (original.id, original.created_at)
+    assert updated.content == "new"
+    with pytest.raises(MemoryRecordNotFound):
+        store.update(original.id, OTHER_CONVERSATION, content="forbidden")
+
+
+def test_delete_clear_and_instances_are_isolated() -> None:
+    first = InMemoryLongTermStore()
+    second = InMemoryLongTermStore()
+    record = first.store("fact", NAMESPACE)
+
+    assert first.delete(record.id, NAMESPACE) is True
+    first.store("one", NAMESPACE)
+    first.store("two", OTHER_CONVERSATION)
+    assert first.clear(NAMESPACE, scope="user_agent") == 2
+    assert second.query(MemoryQuery("fact", NAMESPACE)) == []

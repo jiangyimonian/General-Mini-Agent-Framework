@@ -1,13 +1,13 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.4.0`
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.4.1`
 在稳定的单 Agent 执行、上下文与显式长期记忆之上，增加隔离、确定性的多 Agent
 参与者协作和独立 Judge 裁决。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.4.0 稳定能力
+## 0.4.1 稳定能力
 
 - OpenAI 兼容 Chat Completions 客户端
 - Python 函数到 JSON Schema 的工具定义
@@ -142,7 +142,7 @@ python demo/debate_demo.py
 
 ## 稳定 API
 
-`0.4.0` 的稳定公共入口由 `core` 包导出：
+`0.4.1` 的稳定公共入口由 `core` 包导出：
 
 - 模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -244,7 +244,7 @@ print(result.verdict)
 `no_judge`。`Debate.run_stream()` 使用 Debate 级轮次、发言者、Agent 包装事件和单一
 `debate_done` 终态，执行顺序与同步路径一致。
 
-`0.4.0` 不包含并行参与者、投票、动态角色、异步 API 或通用工作流图。
+`0.4.1` 不包含并行参与者、投票、动态角色、异步 API 或通用工作流图。
 
 ## 多 Agent 与轨迹示例
 
@@ -268,5 +268,5 @@ ruff check core tests demo
 
 ## 开发文档
 
-- [PLAN.md](PLAN.md)：`0.4.0` 架构和稳定边界
+- [PLAN.md](PLAN.md)：`0.4.1` 架构和稳定边界
 - [ROADMAP.md](ROADMAP.md)：后续版本路线

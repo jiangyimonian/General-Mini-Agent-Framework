@@ -6,12 +6,12 @@ def test_pyproject_declares_core_runtime_and_dev_extra() -> None:
 
     assert 'name = "general-mini-agent-framework"' in content
     assert '"httpx>=0.27.0"' in content
-    assert 'dev = [' in content
+    assert "dev = [" in content
     assert '"pytest>=8.0.0"' in content
     assert '"ruff>=' in content
 
 
-def test_pyproject_declares_version_0_4_0() -> None:
+def test_pyproject_declares_version_0_4_1() -> None:
     content = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'version = "0.4.0"' in content
+    assert 'version = "0.4.1"' in content

@@ -2,7 +2,7 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.4.0`
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.4.1`
 在稳定的单 Agent 执行、显式上下文和长期记忆之上，增加隔离且确定性的多 Agent
 参与者轮次与 Judge 裁决。
 
@@ -15,9 +15,9 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.4.0 稳定边界
+## 0.4.1 稳定边界
 
-`0.4.0` 包含并保持 `0.3.1` 的全部模型、工具、Agent、上下文和记忆契约。
+`0.4.1` 包含并保持 `0.3.1` 的全部模型、工具、Agent、上下文和记忆契约。
 
 ### `core/context.py`
 
@@ -107,12 +107,12 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 - 非 `completed` 角色结果在确定边界停止后续角色
 - 同步和流式路径保持相同的角色顺序、收敛转换和停止语义
 
-`Debate` 不直接调用模型客户端或执行工具，也不自动访问长期记忆。`0.4.0` 不提供并行、
+`Debate` 不直接调用模型客户端或执行工具，也不自动访问长期记忆。`0.4.1` 不提供并行、
 投票、动态角色、异步接口或通用工作流图。
 
 ## 实验性模块
 
-以下能力保留用于实验，不属于 `0.4.0` 稳定 API：
+以下能力保留用于实验，不属于 `0.4.1` 稳定 API：
 
 - `core/memory.py` 中的 `SlidingWindowMemory` 和 ChromaDB `LongTermMemory`
 - `core/trace.py`：HTML 轨迹渲染
@@ -121,7 +121,7 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 
 ## 公共接口
 
-`core/__init__.py` 中的 `0.4.0` 稳定导出为：
+`core/__init__.py` 中的 `0.4.1` 稳定导出为：
 
 - `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`

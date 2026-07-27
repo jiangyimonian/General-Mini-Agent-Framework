@@ -273,9 +273,12 @@ class ChromaMemoryStore:
     def query(self, query: MemoryQuery) -> list[MemoryRecord]:
         collection = self._ensure_collection("query")
         try:
+            record_count = collection.count()
+            if record_count == 0:
+                return []
             rows = collection.query(
                 query_texts=[query.text],
-                n_results=query.top_k,
+                n_results=min(query.top_k, record_count),
                 where=_build_where(
                     query.namespace,
                     query.scope,

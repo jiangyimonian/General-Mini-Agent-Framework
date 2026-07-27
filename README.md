@@ -1,13 +1,13 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.3.0`
-在稳定的单 Agent 同步与流式执行之上，增加显式上下文预算、确定性历史裁剪和成功
-对话自动写回。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.3.1`
+在稳定的单 Agent 同步与流式执行、上下文预算和会话记忆之上，增加显式、隔离且可替换的
+长期记忆。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.3.0 稳定能力
+## 0.3.1 稳定能力
 
 - OpenAI 兼容 Chat Completions 客户端
 - Python 函数到 JSON Schema 的工具定义
@@ -23,10 +23,13 @@ General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核�
 - 按完整对话轮次和工具调用边界裁剪历史
 - 同步与流式成功结果自动写入隔离的内存会话
 - 可选的请求级历史摘要策略
+- 按用户、会话和 Agent 隔离的长期记忆契约
+- 确定性的内存存储和可选的 ChromaDB 持久化适配器
+- `Agent.run()` 与 `Agent.run_stream()` 的显式检索和 `memory_error` 终态
 
 ## 实验性模块
 
-长期向量记忆、多 Agent 和 HTML 轨迹导出仍为实验性能力。它们保留在仓库中用于后续
+多 Agent 和 HTML 轨迹导出仍为实验性能力。它们保留在仓库中用于后续
 稳定化，不保证接口或行为兼容性。
 
 ## 项目结构
@@ -37,13 +40,15 @@ core/
 ├── context.py        # Token 计数和请求上下文策略
 ├── llm.py            # OpenAI 兼容模型客户端
 ├── tools.py          # 工具注册、Schema 和执行
-├── memory.py         # 内存会话与实验性长期记忆
+├── memory.py         # 内存会话与旧长期记忆兼容接口
+├── long_term_memory.py # 稳定的显式长期记忆
 ├── debate.py         # 实验性多 Agent 协作
 └── trace.py          # 实验性 HTML 轨迹渲染
 demo/
 ├── reasoning.py      # 同步示例
 ├── reasoning_stream.py # 稳定流式示例
-├── chat.py           # 0.3.0 上下文与记忆示例
+├── chat.py           # 0.3.0 上下文与会话记忆示例
+├── long_term_memory.py # 0.3.1 持久化长期记忆示例
 ├── debate_demo.py
 └── export_demo.py
 tests/                # 离线自动化测试
@@ -69,6 +74,12 @@ python -m pip install ".[dev]"
 
 ```bash
 python -m pip install ".[demo]"
+```
+
+长期记忆 Demo 需要可选的 ChromaDB：
+
+```bash
+python -m pip install ".[memory]"
 ```
 
 从 `.env.example` 创建 `.env`，并配置模型服务：
@@ -121,13 +132,14 @@ print(result.content)
 python demo/reasoning.py
 python demo/reasoning_stream.py
 python demo/chat.py
+python demo/long_term_memory.py
 ```
 
 该示例需要 `.env` 中存在有效模型密钥，不属于默认离线测试。
 
 ## 稳定 API
 
-`0.3.0` 的稳定公共入口由 `core` 包导出：
+`0.3.1` 的稳定公共入口由 `core` 包导出：
 
 - 模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -136,10 +148,12 @@ python demo/chat.py
 - 上下文：`TokenCounter`、`ApproximateTokenCounter`、`ContextPolicy`、
   `TokenBudgetContext`、`SummarizingContext`、`ContextBudgetExceeded`
 - 会话：`ConversationMemory`、`InMemoryConversation`
+- 长期记忆：`MemoryNamespace`、`MemoryRecord`、`MemoryQuery`、`LongTermMemoryStore`、
+  `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
 
 `StreamEvent` 包含 `iteration_start`、`thought_chunk`、`tool_call`、`observation`、
 `final_answer`、`model_error` 和 `done` 七种事件。`done.stop_reason` 为 `completed`、
-`max_iterations`、`model_error`、`incomplete` 或 `context_budget_exceeded`。
+`max_iterations`、`model_error`、`incomplete`、`context_budget_exceeded` 或 `memory_error`。
 
 `TokenBudgetContext` 在每次模型请求前计算系统消息、对话、当前工具消息和工具 Schema。
 它默认使用确定性的近似计数，不保证与服务商 tokenizer 完全一致；需要精确计数时可注入
@@ -169,6 +183,33 @@ policy = TokenBudgetContext(
 `InMemoryConversation` 只在 Agent 成功完成后原子写入一组 `user + assistant` 消息。
 模型错误、上下文超限、迭代耗尽、流式中断和不完整输出均不会写入历史。
 
+### 显式长期记忆
+
+长期记忆使用 `user_id + conversation_id + agent_id` 命名空间。写入与检索都由调用方显式
+触发；Agent 不会自动写入长期记忆。默认检索仅匹配完整命名空间，跨会话或跨 Agent 的
+读取必须显式选择更宽作用域。
+
+```python
+from core import Agent, InMemoryLongTermStore, MemoryNamespace, MemoryQuery
+
+namespace = MemoryNamespace("user-1", "conversation-1", "assistant")
+long_term_memory = InMemoryLongTermStore()
+long_term_memory.store("用户偏好简洁的 Python 示例", namespace)
+
+agent = Agent(llm=model, long_term_memory=long_term_memory)
+result = agent.run(
+    "给我一个示例",
+    memory_query=MemoryQuery("Python 偏好", namespace),
+)
+```
+
+检索结果按相关性顺序作为有界的 system 参考块加入当前请求，并明确标注为历史数据而非
+系统指令。记录内容不会被截断；如果没有完整记录能放入 `max_context_tokens`，请求在访问
+模型前以 `context_budget_exceeded` 停止。`ChromaMemoryStore` 负责 Embedding 和索引，
+ChromaDB 仍是首次操作时才加载的可选依赖。
+
+`0.3.1` 不包含自动记忆选择、自动写入、异步存储、复杂元数据表达式、重排序或分数归一化。
+
 `SlidingWindowMemory` 和 `LongTermMemory` 仅保留兼容导出，不属于稳定 API。
 `core.debate` 与 `core.trace` 同样属于实验性模块。`SummarizingContext` 必须由调用方
 显式提供摘要函数，不会在后台复用主模型；摘要失败时回退到确定性裁剪。
@@ -195,5 +236,5 @@ ruff check core tests demo
 
 ## 开发文档
 
-- [PLAN.md](PLAN.md)：`0.3.0` 架构和稳定边界
+- [PLAN.md](PLAN.md)：`0.3.1` 架构和稳定边界
 - [ROADMAP.md](ROADMAP.md)：后续版本路线

@@ -28,7 +28,14 @@ class FakeCollection:
         self.query_rows = query_rows
         self.last_where = None
 
+    def count(self):
+        if self.query_rows is None:
+            return 0
+        return len(self.query_rows["ids"][0])
+
     def query(self, *, query_texts, n_results, where):
+        if n_results > self.count():
+            raise ValueError("n_results exceeds collection size")
         self.last_where = where
         return self.query_rows
 
@@ -155,6 +162,10 @@ def test_chroma_is_loaded_only_on_first_operation(monkeypatch) -> None:
 
 
 def test_chroma_query_translates_scope_and_exact_metadata(monkeypatch) -> None:
+    empty_collection = FakeCollection()
+    monkeypatch.setitem(sys.modules, "chromadb", fake_chromadb(empty_collection))
+    assert ChromaMemoryStore().query(MemoryQuery("python", NAMESPACE)) == []
+
     collection = FakeCollection(query_rows=RECORD_ROW)
     monkeypatch.setitem(sys.modules, "chromadb", fake_chromadb(collection))
     store = ChromaMemoryStore()

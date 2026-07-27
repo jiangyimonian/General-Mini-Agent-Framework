@@ -17,6 +17,20 @@ from .llm import (
     StreamingChatModel,
     ToolCallDelta,
 )
+from .long_term_memory import (
+    ChromaMemoryStore,
+    InMemoryLongTermStore,
+    LongTermMemoryStore,
+    MemoryNamespace,
+    MemoryQuery,
+    MemoryRecord,
+    MemoryRecordNotFound,
+    MemoryScope,
+    MemoryStoreError,
+    MetadataValue,
+    build_memory_context,
+    create_memory_record,
+)
 from .memory import ConversationMemory, InMemoryConversation
 from .tools import Tool, ToolRegistry, tool
 
@@ -50,6 +64,18 @@ __all__ = [
     "ContextBudgetExceeded",
     "ConversationMemory",
     "InMemoryConversation",
+    "MemoryScope",
+    "MetadataValue",
+    "MemoryNamespace",
+    "MemoryRecord",
+    "MemoryQuery",
+    "LongTermMemoryStore",
+    "MemoryStoreError",
+    "MemoryRecordNotFound",
+    "InMemoryLongTermStore",
+    "ChromaMemoryStore",
+    "create_memory_record",
+    "build_memory_context",
     "SlidingWindowMemory",
     "LongTermMemory",
 ]

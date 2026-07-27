@@ -2,9 +2,9 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.3.0`
-在稳定的单 Agent 同步与流式执行上增加显式上下文预算和事务式会话写回，后续版本再
-稳定长期记忆和多 Agent 能力。
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.3.1`
+在稳定的单 Agent 同步与流式执行、显式上下文预算和事务式会话写回之上，增加隔离且
+可替换的显式长期记忆；后续版本再稳定多 Agent 能力。
 
 ## 设计原则
 
@@ -15,9 +15,9 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.3.0 稳定边界
+## 0.3.1 稳定边界
 
-`0.3.0` 包含并保持 `0.2.0` 的全部模型、工具与 Agent 流式契约。
+`0.3.1` 包含并保持 `0.3.0` 的全部模型、工具、Agent、上下文和会话记忆契约。
 
 ### `core/context.py`
 
@@ -85,9 +85,20 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 输出执行深复制，先校验整个批次再写入，并保持实例状态隔离。上下文裁剪属于
 `core/context.py`，不会破坏存储中的完整会话历史。
 
+### `core/long_term_memory.py`
+
+定义稳定的 `MemoryNamespace`、`MemoryRecord`、`MemoryQuery` 和 `LongTermMemoryStore`
+契约。默认读写使用 `user_id + conversation_id + agent_id` 完整命名空间，宽作用域只允许
+显式查询和清理，更新与删除始终要求记录 ID 和完整归属命名空间。
+
+`InMemoryLongTermStore` 提供确定性的离线实现；`ChromaMemoryStore` 延迟加载可选依赖，
+并负责 Embedding、索引和持久化。Agent 只在调用方传入 `memory_query` 时检索一次，不会
+自动写入。检索失败在模型访问前映射为 `memory_error`，检索文本作为有界历史参考数据，
+不能替代系统规则。
+
 ## 实验性模块
 
-以下能力保留用于实验，不属于 `0.3.0` 稳定 API：
+以下能力保留用于实验，不属于 `0.3.1` 稳定 API：
 
 - `core/memory.py` 中的 `SlidingWindowMemory` 和 ChromaDB `LongTermMemory`
 - `core/debate.py`：多 Agent 角色协作
@@ -97,7 +108,7 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 
 ## 公共接口
 
-`core/__init__.py` 中的 `0.3.0` 稳定导出为：
+`core/__init__.py` 中的 `0.3.1` 稳定导出为：
 
 - `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -106,6 +117,8 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 - `TokenCounter`、`ApproximateTokenCounter`、`ContextPolicy`、`TokenBudgetContext`、
   `SummarizingContext`、`ContextBudgetExceeded`
 - `ConversationMemory`、`InMemoryConversation`
+- `MemoryNamespace`、`MemoryRecord`、`MemoryQuery`、`LongTermMemoryStore`
+- `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
 
 `SlidingWindowMemory` 和 `LongTermMemory` 仅为兼容现有调用而继续导出，不构成稳定 API。
 
@@ -116,6 +129,7 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 - 未知工具、无效参数和工具异常写入结构化轨迹，使模型可以修正或结束。
 - 达到最大迭代次数时返回明确的 `stop_reason`。
 - 受保护上下文无法满足预算时在模型请求前返回 `context_budget_exceeded`。
+- 长期记忆检索失败时在模型请求前返回脱敏的 `memory_error`。
 - 摘要失败回退到确定性裁剪，不改变原始会话历史。
 - 可选依赖在首次使用实验组件时延迟加载。
 
@@ -126,4 +140,5 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 其接口已进入稳定契约。
 
 上下文与写回测试额外覆盖原子工具边界、受保护轮次、流式中断、请求级重算和状态隔离。
+长期记忆测试覆盖命名空间、显式宽作用域、精确过滤、适配器边界和只读 Agent 检索。
 真实模型验证不属于默认 CI；运行 Demo 前需要从 `.env.example` 创建 `.env` 并配置有效密钥。

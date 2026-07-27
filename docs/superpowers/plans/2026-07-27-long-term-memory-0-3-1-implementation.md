@@ -317,28 +317,28 @@ git commit -m "feat: support explicit Agent memory retrieval"
 - Consumes: all Tasks 1-4
 - Produces: public `0.3.1` exports and a persistent explicit-write/retrieval example
 
-- [ ] **Step 1: Add one parameterized release contract test**
+- [x] **Step 1: Add one parameterized release contract test**
 
 Assert the package version is `0.3.1`, stable exports import, README describes explicit retrieval and
 no automatic writes, and the Demo contains `ChromaMemoryStore`, `MemoryNamespace`, and `MemoryQuery`.
 
-- [ ] **Step 2: Run release contract tests and confirm failure**
+- [x] **Step 2: Run release contract tests and confirm failure**
 
 Run: `python -m pytest tests/test_docs_contract.py tests/test_package_metadata.py -v`
 Expected: release assertions FAIL against `0.3.0`.
 
-- [ ] **Step 3: Export APIs, add Demo, update docs, and bump version**
+- [x] **Step 3: Export APIs, add Demo, update docs, and bump version**
 
 The Demo explicitly stores one fact, queries it by exact namespace, and prints results without a
 model or network call. README includes a minimal Agent retrieval snippet and names all exclusions.
 Move completed `0.3.1` work out of ROADMAP; keep multi-Agent as `0.4`.
 
-- [ ] **Step 4: Run the single focused release set**
+- [x] **Step 4: Run the single focused release set**
 
 Run: `python -m pytest tests/test_docs_contract.py tests/test_package_metadata.py -v`
 Expected: release tests PASS.
 
-- [ ] **Step 5: Run final verification once**
+- [x] **Step 5: Run final verification once**
 
 ```bash
 python -m pytest tests -v

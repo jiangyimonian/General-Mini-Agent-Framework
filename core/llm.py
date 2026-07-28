@@ -107,6 +107,74 @@ class LLMConfig:
     max_retries: int = 3
 
 
+# ─── 纯解析函数（同步/异步共用）───────────────────────────────
+
+
+def parse_response_payload(data: dict[str, Any]) -> LLMResponse:
+    """解析 OpenAI 兼容的 response JSON（纯函数，不依赖实例状态）。"""
+    choice = data["choices"][0]
+    msg = choice["message"]
+
+    content = msg.get("content")
+    tool_calls = None
+
+    if "tool_calls" in msg and msg["tool_calls"]:
+        tool_calls = []
+        for tc in msg["tool_calls"]:
+            tool_calls.append(ToolCall(
+                id=tc["id"],
+                name=tc["function"]["name"],
+                arguments=json.loads(tc["function"]["arguments"]),
+            ))
+
+    return LLMResponse(
+        content=content,
+        tool_calls=tool_calls,
+        usage=data.get("usage", {}),
+        model=data.get("model", ""),
+    )
+
+
+def parse_stream_chunk_payload(data: dict[str, Any]) -> StreamChunk | None:
+    """解析单个 SSE data chunk（纯函数，不依赖实例状态）。
+
+    返回 None 表示只有 usage 或空 chunk。
+    抛出 ModelRequestError 表示协议错误。
+    """
+    usage = data.get("usage") or {}
+    choices = data.get("choices") or []
+    if not choices:
+        return StreamChunk(usage=usage) if usage else None
+
+    choice = choices[0]
+    delta = choice.get("delta") or {}
+    tool_calls: list[ToolCallDelta] = []
+    for raw_call in delta.get("tool_calls") or []:
+        index = raw_call.get("index")
+        if not isinstance(index, int):
+            raise ModelRequestError(
+                "model stream tool call is missing an integer index",
+                endpoint="/chat/completions",
+                error_code="stream_protocol_error",
+            )
+        function = raw_call.get("function") or {}
+        tool_calls.append(
+            ToolCallDelta(
+                index=index,
+                id=raw_call.get("id") or "",
+                name=function.get("name") or "",
+                arguments=function.get("arguments") or "",
+            )
+        )
+
+    return StreamChunk(
+        content=delta.get("content") or "",
+        tool_calls=tool_calls,
+        finish_reason=choice.get("finish_reason") or "",
+        usage=usage,
+    )
+
+
 # ─── LLM 核心类 ─────────────────────────────────────────────
 
 
@@ -147,7 +215,7 @@ class LLM:
                 resp = self._client.post("/chat/completions", json=body)
                 resp.raise_for_status()
                 data = resp.json()
-                return self._parse_response(data)
+                return parse_response_payload(data)
 
             except httpx.HTTPStatusError as exc:
                 last_error = exc
@@ -210,7 +278,7 @@ class LLM:
                                 error_code="stream_protocol_error",
                             ) from exc
 
-                        chunk = self._parse_stream_chunk(data)
+                        chunk = parse_stream_chunk_payload(data)
                         if chunk is not None:
                             yielded_chunk = True
                             yield chunk
@@ -245,67 +313,6 @@ class LLM:
             "model request failed after retries",
             endpoint="/chat/completions",
         ) from last_error
-
-    # ── 内部方法 ────────────────────────────────────────
-
-    def _parse_stream_chunk(self, data: dict[str, Any]) -> StreamChunk | None:
-        """解析单个 SSE data chunk"""
-        usage = data.get("usage") or {}
-        choices = data.get("choices") or []
-        if not choices:
-            return StreamChunk(usage=usage) if usage else None
-
-        choice = choices[0]
-        delta = choice.get("delta") or {}
-        tool_calls: list[ToolCallDelta] = []
-        for raw_call in delta.get("tool_calls") or []:
-            index = raw_call.get("index")
-            if not isinstance(index, int):
-                raise ModelRequestError(
-                    "model stream tool call is missing an integer index",
-                    endpoint="/chat/completions",
-                    error_code="stream_protocol_error",
-                )
-            function = raw_call.get("function") or {}
-            tool_calls.append(
-                ToolCallDelta(
-                    index=index,
-                    id=raw_call.get("id") or "",
-                    name=function.get("name") or "",
-                    arguments=function.get("arguments") or "",
-                )
-            )
-
-        return StreamChunk(
-            content=delta.get("content") or "",
-            tool_calls=tool_calls,
-            finish_reason=choice.get("finish_reason") or "",
-            usage=usage,
-        )
-
-    def _parse_response(self, data: dict) -> LLMResponse:
-        """解析 OpenAI 兼容的 response JSON"""
-        choice = data["choices"][0]
-        msg = choice["message"]
-
-        content = msg.get("content")
-        tool_calls = None
-
-        if "tool_calls" in msg and msg["tool_calls"]:
-            tool_calls = []
-            for tc in msg["tool_calls"]:
-                tool_calls.append(ToolCall(
-                    id=tc["id"],
-                    name=tc["function"]["name"],
-                    arguments=json.loads(tc["function"]["arguments"]),
-                ))
-
-        return LLMResponse(
-            content=content,
-            tool_calls=tool_calls,
-            usage=data.get("usage", {}),
-            model=data.get("model", ""),
-        )
 
     def _sleep(self, attempt: int) -> None:
         """指数退避：1s, 2s, 4s, ..."""

@@ -9,7 +9,13 @@ import pytest
 
 import core.llm as llm_module
 from core import StreamChunk, StreamingChatModel, ToolCallDelta
-from core.llm import LLM, LLMConfig, LLMResponse, ModelRequestError
+from core.llm import (
+    LLM,
+    LLMConfig,
+    LLMResponse,
+    ModelRequestError,
+    parse_response_payload,
+)
 
 
 def make_streaming_llm(
@@ -367,12 +373,7 @@ def test_llm_chat_stream_retries_retryable_http_error_then_yields_chunks() -> No
 
 
 class TestLLMResponseParsing:
-    """测试 _parse_response 的 JSON 解析逻辑"""
-
-    def setup_method(self):
-        # 用一个假的 api_key 来初始化（不会真正发请求）
-        self.config = LLMConfig(api_key="test-key")
-        self.llm = LLM(self.config)
+    """测试 parse_response_payload 的 JSON 解析逻辑"""
 
     def test_text_response(self):
         data = {
@@ -383,7 +384,7 @@ class TestLLMResponseParsing:
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content == "你好！"
         assert resp.tool_calls is None
         assert resp.usage["total_tokens"] == 15
@@ -408,7 +409,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content == "我需要计算"
         assert resp.tool_calls is not None
         assert len(resp.tool_calls) == 1
@@ -439,7 +440,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert len(resp.tool_calls) == 2
         assert resp.tool_calls[0].name == "add"
         assert resp.tool_calls[1].name == "multiply"
@@ -454,7 +455,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content is None
         assert resp.tool_calls is None
 
@@ -472,7 +473,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content == "好的"
         assert resp.tool_calls is None
 

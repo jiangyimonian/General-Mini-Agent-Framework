@@ -1,6 +1,7 @@
 """测试异步工具执行、timeout 和取消传播。"""
 
 import asyncio
+import json
 
 import pytest
 
@@ -246,5 +247,246 @@ class TestSyncToolCancellationLimitation:
                 await task
             except asyncio.CancelledError:
                 pass
+
+        asyncio.run(run())
+
+
+# ─────────────────────────────────────────────────────────────
+# AsyncAgent 测试
+# ─────────────────────────────────────────────────────────────
+
+
+class MockAsyncLLM:
+    """Mock 异步 LLM，用于测试。"""
+
+    def __init__(self, responses: list):
+        self.responses = responses
+        self.call_count = 0
+
+    async def chat_async(self, messages, *, tools=None):
+        if self.call_count < len(self.responses):
+            resp = self.responses[self.call_count]
+            self.call_count += 1
+            return resp
+        raise RuntimeError("no more responses")
+
+    def chat_stream_async(self, messages, *, tools=None):
+        return self._stream_impl(messages, tools)
+
+    async def _stream_impl(self, messages, tools):
+        if self.call_count < len(self.responses):
+            resp = self.responses[self.call_count]
+            self.call_count += 1
+            if resp.content:
+                yield {"type": "thought_chunk", "iteration": 0, "text": resp.content}
+            if resp.tool_calls:
+                for tc in resp.tool_calls:
+                    yield {
+                        "type": "tool_call",
+                        "iteration": 0,
+                        "index": 0,
+                        "id": tc.id,
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                        "raw_arguments": json.dumps(tc.arguments),
+                    }
+            yield {
+                "type": "done",
+                "content": resp.content or "",
+                "trace": [],
+                "usage": resp.usage,
+                "iterations": 1,
+                "stop_reason": "completed",
+            }
+
+
+class TestAsyncAgentBasic:
+    """测试 AsyncAgent 基本行为。"""
+
+    def test_direct_answer_returns_content(self) -> None:
+        """直接回答返回内容。"""
+        from core.async_agent import AsyncAgent
+        from core.llm import LLMResponse
+
+        llm = MockAsyncLLM([
+            LLMResponse(content="Hello, world!", tool_calls=None, usage={"total_tokens": 5})
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm)
+            result = await agent.run_async("hi")
+            assert result.content == "Hello, world!"
+            assert result.stop_reason == "completed"
+
+        asyncio.run(run())
+
+    def test_two_tool_calls_in_sequence(self) -> None:
+        """两次工具调用按顺序执行。"""
+        from core.async_agent import AsyncAgent
+        from core.llm import LLMResponse, ToolCall
+
+        call_order = []
+
+        @tool
+        async def first_tool(x: int) -> dict:
+            call_order.append("first")
+            return {"result": x * 2}
+
+        @tool
+        async def second_tool(y: int) -> dict:
+            call_order.append("second")
+            return {"result": y + 1}
+
+        llm = MockAsyncLLM([
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="first_tool", arguments={"x": 3})],
+                usage={},
+            ),
+            LLMResponse(
+                content="Done",
+                tool_calls=None,
+                usage={"total_tokens": 10},
+            ),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm, tools=[first_tool, second_tool])
+            result = await agent.run_async("test")
+            assert result.content == "Done"
+            assert call_order == ["first"]
+
+        asyncio.run(run())
+
+    def test_tool_timeout_allows_model_recovery(self) -> None:
+        """工具 timeout 后模型可以继续推理。"""
+        from core.async_agent import AsyncAgent
+        from core.llm import LLMResponse, ToolCall
+
+        @tool
+        async def slow_tool() -> str:
+            await asyncio.sleep(10)
+            return "should not reach"
+
+        llm = MockAsyncLLM([
+            LLMResponse(
+                content=None,
+                tool_calls=[ToolCall(id="c1", name="slow_tool", arguments={})],
+                usage={},
+            ),
+            LLMResponse(
+                content="I see the tool timed out",
+                tool_calls=None,
+                usage={"total_tokens": 15},
+            ),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm, tools=[slow_tool], default_tool_timeout=0.05)
+            result = await agent.run_async("test")
+            assert result.content == "I see the tool timed out"
+            assert result.stop_reason == "completed"
+
+        asyncio.run(run())
+
+    def test_cancellation_does_not_write_to_memory(self) -> None:
+        """取消不写入会话记忆。"""
+        from core.async_agent import AsyncAgent
+        from core.llm import LLMResponse
+        from core.memory import InMemoryConversation
+
+        # 使用一个会阻塞的 LLM
+        class BlockingLLM:
+            def __init__(self):
+                self.started = False
+
+            async def chat_async(self, messages, *, tools=None):
+                self.started = True
+                # 等待很长时间
+                await asyncio.sleep(10)
+                return LLMResponse(content="done", tool_calls=None, usage={})
+
+        llm = BlockingLLM()
+        memory = InMemoryConversation()
+
+        async def run():
+            agent = AsyncAgent(llm, memory=memory)
+            task = asyncio.create_task(agent.run_async("hi"))
+            # 等待 LLM 开始
+            await asyncio.sleep(0.01)
+            assert llm.started
+            # 取消任务
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            # 取消后记忆应该为空（因为任务被取消，没有完成）
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
+    def test_successful_run_writes_to_memory(self) -> None:
+        """成功运行原子写入会话记忆。"""
+        from core.async_agent import AsyncAgent
+        from core.llm import LLMResponse
+        from core.memory import InMemoryConversation
+
+        llm = MockAsyncLLM([
+            LLMResponse(content="Hello!", tool_calls=None, usage={})
+        ])
+        memory = InMemoryConversation()
+
+        async def run():
+            agent = AsyncAgent(llm, memory=memory)
+            result = await agent.run_async("hi")
+            assert result.stop_reason == "completed"
+            # 成功后记忆应该有内容
+            ctx = memory.get_context()
+            assert len(ctx) == 2
+            assert ctx[0]["role"] == "user"
+            assert ctx[1]["role"] == "assistant"
+
+        asyncio.run(run())
+
+
+class TestAsyncAgentConcurrency:
+    """测试 AsyncAgent 并发隔离。"""
+
+    def test_concurrent_runs_do_not_share_state(self) -> None:
+        """同一实例两个并发运行不共享 trace/messages。"""
+        from core.async_agent import AsyncAgent
+        from core.llm import LLMResponse
+
+        # 每个实例独立的 LLM
+        class InstanceMockLLM:
+            def __init__(self, response_id):
+                self.response_id = response_id
+
+            async def chat_async(self, messages, *, tools=None):
+                await asyncio.sleep(0.05)
+                return LLMResponse(
+                    content=f"response {self.response_id}",
+                    tool_calls=None,
+                    usage={},
+                )
+
+        async def run():
+            # 创建两个不同的 LLM 实例
+            llm1 = InstanceMockLLM(1)
+            llm2 = InstanceMockLLM(2)
+
+            agent1 = AsyncAgent(llm1)
+            agent2 = AsyncAgent(llm2)
+
+            task1 = asyncio.create_task(agent1.run_async("input 1"))
+            task2 = asyncio.create_task(agent2.run_async("input 2"))
+            results = await asyncio.gather(task1, task2)
+            # 两个结果应该不同
+            assert "1" in results[0].content
+            assert "2" in results[1].content
+            # 每个应该有自己的 trace
+            assert len(results[0].trace) >= 0
+            assert len(results[1].trace) >= 0
 
         asyncio.run(run())

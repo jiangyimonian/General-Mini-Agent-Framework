@@ -1,13 +1,13 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.7.0`
-在 `0.6.0` 的异步模型与 Agent API 之上，增加统一运行标识、事件 envelope 和
-版本化 JSON trace。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.7.1`
+在 `0.7.0` 的统一运行标识、事件 envelope 和版本化 JSON trace 之上，稳定 HTML
+报告渲染、过滤和双运行对比，并提供完全离线的框架示例。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.7.0 稳定能力
+## 0.7.1 稳定能力
 
 ### 同步 API（继承自 0.5.0）
 
@@ -65,9 +65,25 @@ General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核�
 - 现有 `StreamEvent` 和 `DebateStreamEvent` 保持兼容
 - 模型错误自动脱敏，不包含 Authorization header 或 API Key
 
-## 实验性模块
+### HTML 报告（0.7.1 新增）
 
-HTML 轨迹导出仍为实验性能力。它保留在仓库中用于后续稳定化，不保证接口或行为兼容性。
+- `trace_to_html()` / `export_trace_html()` TraceDocument 渲染为自包含 HTML
+- `compare_traces_to_html()` 双运行对比报告
+- 事件类型、run ID、停止原因、错误过滤
+- 无外部资源，断网可用
+- XSS 安全转义
+
+### 离线 Demo
+
+```bash
+python demo/offline.py
+```
+
+输出：
+- `output/offline-agent.json` / `.html` — 单 Agent 轨迹
+- `output/offline-debate.json` / `.html` — Debate 轨迹
+
+不读取 `.env`，不访问网络。
 
 ## 项目结构
 
@@ -82,12 +98,14 @@ core/
 ├── debate.py         # 稳定的多 Agent 协作
 ├── events.py         # 运行上下文与事件 envelope
 ├── trace_json.py     # 版本化 JSON trace 导出
-└── trace.py          # 实验性 HTML 轨迹渲染
+├── trace.py          # HTML 报告渲染
 demo/
 ├── reasoning.py      # 同步示例
 ├── reasoning_stream.py # 稳定流式示例
 ├── chat.py           # 0.3.0 上下文与会话记忆示例
 ├── long_term_memory.py # 0.3.1 持久化长期记忆示例
+├── offline.py        # 离线 Demo（无网络）
+├── scripted_models.py # 脚本化模型
 ├── debate_demo.py
 └── export_demo.py
 tests/                # 离线自动化测试

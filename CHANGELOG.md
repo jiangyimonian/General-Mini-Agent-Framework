@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.1] - 2026-07-28
+
+### 新增
+
+- HTML 报告渲染：`trace_to_html()`、`export_trace_html()`、`compare_traces_to_html()`
+- 事件过滤：类型、run ID、停止原因、仅错误
+- 双运行对比报告：显示 usage、耗时、错误差异
+- 离线 Demo：`python demo/offline.py` 生成 Agent 和 Debate 轨迹
+- 脚本化模型：`demo/scripted_models.py` 用于无网络测试
+
+### 变更
+
+- HTML 报告从实验性提升为稳定能力
+- 版本号更新为 0.7.1
+- PLAN.md 将 HTML trace 标记为稳定
+
 ## [0.7.0] - 2026-07-28
 
 ### 新增

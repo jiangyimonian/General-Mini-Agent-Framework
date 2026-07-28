@@ -72,9 +72,11 @@ from .trace import (
     compare_traces_to_html,
     debate_to_html,
     export_trace_html,
-    export_trace_html as export_trace,
     render_html,
     trace_to_html,
+)
+from .trace import (
+    export_trace_html as export_trace,
 )
 from .trace_json import (
     TraceDocument,
@@ -84,10 +86,9 @@ from .trace_json import (
 )
 from .workflow import (
     ConditionalNode,
-    JSONValue,
     NodeResult,
-    ParallelNode,
     ParallelErrorPolicy,
+    ParallelNode,
     SequenceNode,
     Workflow,
     WorkflowNode,
@@ -181,6 +182,13 @@ __all__ = [
     "trace_to_json",
     "trace_from_json",
     "export_trace_json",
+    # HTML trace
+    "trace_to_html",
+    "export_trace_html",
+    "compare_traces_to_html",
+    "render_html",
+    "debate_to_html",
+    "export_trace",
     # 兼容导出
     "SlidingWindowMemory",
     "LongTermMemory",
@@ -189,7 +197,6 @@ __all__ = [
     "WorkflowNode",
     "WorkflowResult",
     "NodeResult",
-    "JSONValue",
     "WorkflowStopReason",
     "SequenceNode",
     "ParallelNode",

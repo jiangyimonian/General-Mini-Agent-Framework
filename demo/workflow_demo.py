@@ -29,8 +29,6 @@ from core import (
     trace_to_html,
 )
 from core.trace_json import TraceDocument
-from demo.scripted_models import ScriptedChatModel
-
 
 # ─── 简单节点定义 ────────────────────────────────────────────────────────
 

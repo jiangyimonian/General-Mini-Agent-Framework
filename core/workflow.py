@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Callable, Literal, Protocol, Sequence
+from typing import Any, Literal, Protocol
 
 from .events import EventSink, RunContext, RunEventEmitter
 

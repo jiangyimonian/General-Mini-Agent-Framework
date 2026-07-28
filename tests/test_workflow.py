@@ -8,16 +8,14 @@ from typing import Any
 import pytest
 
 from core.events import EventCollector, RunContext, RunEventEmitter
+from core.trace_json import TraceDocument, trace_from_json, trace_to_json
 from core.workflow import (
     NodeResult,
     Workflow,
-    WorkflowNode,
     WorkflowResult,
-    WorkflowStopReason,
     _create_child_context,
     _create_root_context,
 )
-from core.trace_json import TraceDocument, trace_from_json, trace_to_json
 
 
 class TestWorkflowNodeProtocol:
@@ -392,7 +390,7 @@ class TestSequenceNode:
 
         seq = SequenceNode([ContextCaptureNode(), ContextCaptureNode()])
         workflow = Workflow(root=seq, event_sink=collector)
-        result = await workflow.run("input")
+        await workflow.run("input")
 
         # 所有子节点有相同的父（串行节点的 run_context）
         # 但每个有唯一的 run_id
@@ -735,10 +733,9 @@ class TestWorkflowAdapters:
 
     async def test_agent_node_converts_result(self) -> None:
         """AgentNode 转换结果。"""
+        from core.agent import Agent
         from core.workflow_adapters import AgentNode
         from demo.scripted_models import ScriptedChatModel, agent_with_tool_response
-
-        from core.agent import Agent
 
         collector = EventCollector()
 
@@ -754,10 +751,9 @@ class TestWorkflowAdapters:
 
     async def test_agent_node_rejects_non_string_input(self) -> None:
         """AgentNode 拒绝非字符串输入。"""
+        from core.agent import Agent
         from core.workflow_adapters import AgentNode
         from demo.scripted_models import ScriptedChatModel
-
-        from core.agent import Agent
 
         collector = EventCollector()
 
@@ -773,11 +769,10 @@ class TestWorkflowAdapters:
 
     async def test_debate_node_converts_verdict(self) -> None:
         """DebateNode 转换 verdict。"""
-        from core.workflow_adapters import DebateNode
-        from demo.scripted_models import ScriptedChatModel, debate_responses
-
         from core.agent import Agent
         from core.debate import create_debate
+        from core.workflow_adapters import DebateNode
+        from demo.scripted_models import ScriptedChatModel, debate_responses
 
         collector = EventCollector()
 
@@ -807,11 +802,10 @@ class TestWorkflowAdapters:
 
     async def test_debate_node_rejects_non_string_input(self) -> None:
         """DebateNode 拒绝非字符串输入。"""
-        from core.workflow_adapters import DebateNode
-        from demo.scripted_models import ScriptedChatModel
-
         from core.agent import Agent
         from core.debate import create_debate
+        from core.workflow_adapters import DebateNode
+        from demo.scripted_models import ScriptedChatModel
 
         collector = EventCollector()
 

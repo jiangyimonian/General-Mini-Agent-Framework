@@ -95,8 +95,9 @@ def test_core_exports_stable_tool_contracts() -> None:
         ToolAuthorizationRequest,
         ToolExecutionResult,
     )
+    from core.tools import JSONValue as ToolJSONValue
 
-    assert JSONValue is not None
+    assert JSONValue is ToolJSONValue
     assert ToolAuthorizationDecision is not None
     assert ToolAuthorizationPolicy is not None
     assert ToolAuthorizationRequest is not None
@@ -150,6 +151,37 @@ def test_core_exports_stable_trace_json_contracts() -> None:
     assert trace_to_json is not None
     assert trace_from_json is not None
     assert export_trace_json is not None
+
+
+def test_core_exports_stable_trace_html_contracts() -> None:
+    import core
+    from core import (
+        compare_traces_to_html,
+        debate_to_html,
+        export_trace,
+        export_trace_html,
+        render_html,
+        trace_to_html,
+    )
+
+    expected_exports = {
+        "compare_traces_to_html",
+        "debate_to_html",
+        "export_trace",
+        "export_trace_html",
+        "render_html",
+        "trace_to_html",
+    }
+    assert expected_exports <= set(core.__all__)
+    assert export_trace is export_trace_html
+    assert all(
+        (
+            compare_traces_to_html,
+            debate_to_html,
+            render_html,
+            trace_to_html,
+        )
+    )
 
 
 @pytest.mark.parametrize(

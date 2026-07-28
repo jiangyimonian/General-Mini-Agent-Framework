@@ -8,7 +8,7 @@ import pytest
 def test_readme_publishes_stable_multi_agent_scope() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "0.5.0 稳定能力" in readme
+    assert "0.6.0 稳定能力" in readme
     assert "单 Agent 同步工具调用" in readme
     assert "OpenAI 兼容" in readme
     assert "Agent.run_stream()" in readme
@@ -24,6 +24,16 @@ def test_readme_publishes_stable_multi_agent_scope() -> None:
     assert "HTML 轨迹导出仍为实验性" in readme
     assert "结构化工具结果" in readme
     assert "工具授权" in readme
+
+
+def test_readme_documents_async_limitations() -> None:
+    """README 必须说明同步工具取消限制。"""
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    # 0.6.0 异步能力
+    assert "AsyncAgent" in readme or "异步 Agent" in readme
+    # 同步工具取消限制说明
+    assert "同步工具" in readme or "sync callable" in readme.lower()
 
 
 def test_core_exports_stable_streaming_contracts() -> None:
@@ -93,10 +103,27 @@ def test_core_exports_stable_tool_contracts() -> None:
     assert ToolExecutionResult is not None
 
 
+def test_core_exports_stable_async_contracts() -> None:
+    """测试异步符号导出。"""
+    from core import (
+        AsyncAgent,
+        AsyncChatModel,
+        AsyncLLM,
+        AsyncStreamingChatModel,
+        AsyncToolRegistry,
+    )
+
+    assert AsyncAgent is not None
+    assert AsyncChatModel is not None
+    assert AsyncLLM is not None
+    assert AsyncStreamingChatModel is not None
+    assert AsyncToolRegistry is not None
+
+
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "0.5.0"',)),
+        ("pyproject.toml", ('version = "0.6.0"',)),
         ("README.md", ("显式检索", "不会自动写入")),
         (
             "demo/long_term_memory.py",

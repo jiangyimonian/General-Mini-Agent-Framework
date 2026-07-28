@@ -1,13 +1,15 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.5.0`
-在稳定的单 Agent 执行、上下文与显式长期记忆之上，增加结构化工具结果、实例级
-工具授权策略和 fail-closed 授权语义。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.6.0`
+在 `0.5.0` 的结构化工具结果和工具授权之上，增加异步模型与 Agent API、
+工具 timeout 和协作式取消语义。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.5.0 稳定能力
+## 0.6.0 稳定能力
+
+### 同步 API（继承自 0.5.0）
 
 - OpenAI 兼容 Chat Completions 客户端
 - Python 函数到 JSON Schema 的工具定义
@@ -31,6 +33,24 @@ General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核�
 - `Debate.run()` 与 `Debate.run_stream()` 的运行隔离和确定性失败边界
 - 结构化工具结果：合法 JSON 值保留在 `value`，确定性紧凑序列化为 `content`
 - 实例级工具授权策略：fail-closed，拒绝或异常时不调用工具函数
+
+### 异步 API（0.6.0 新增）
+
+- `AsyncLLM` 异步模型客户端，支持 `async with` 生命周期
+- `AsyncAgent.run_async()` 异步 ReAct 循环
+- `AsyncAgent.run_stream_async()` 异步流式事件生成器
+- `AsyncToolRegistry` 异步工具执行，支持 timeout 和取消传播
+- 异步 callable 直接 await，同步 callable 通过 `asyncio.to_thread()` 执行
+- 工具 timeout 返回 `tool_timeout` observation，模型可继续推理
+- `CancelledError` 从模型、工具、Agent 原样传播
+- 取消或未完整消费的流不写入会话记忆
+- 同一 `AsyncAgent` 实例可并发运行，状态隔离
+
+### 同步工具取消限制
+
+同步 Python 函数通过 `asyncio.to_thread()` 在后台线程执行。取消只会停止等待，
+**不会强制终止后台线程**。同步工具可能继续执行并产生副作用。需要响应取消的工具
+应实现为 `async def` 并使用 `asyncio.sleep()` 或其他可取消的等待操作。
 
 ## 实验性模块
 
@@ -144,13 +164,16 @@ python demo/debate_demo.py
 
 ## 稳定 API
 
-`0.5.0` 的稳定公共入口由 `core` 包导出：
+`0.6.0` 的稳定公共入口由 `core` 包导出：
 
-- 模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
+- 同步模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
+- 异步模型：`AsyncChatModel`、`AsyncStreamingChatModel`、`AsyncLLM`
 - 工具：`tool`、`Tool`、`ToolRegistry`、`ToolExecutionResult`、`JSONValue`、
   `ToolAuthorizationRequest`、`ToolAuthorizationDecision`、`ToolAuthorizationPolicy`
-- Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
+- 异步工具：`AsyncToolRegistry`
+- 同步 Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
+- 异步 Agent：`AsyncAgent`
 - 上下文：`TokenCounter`、`ApproximateTokenCounter`、`ContextPolicy`、
   `TokenBudgetContext`、`SummarizingContext`、`ContextBudgetExceeded`
 - 会话：`ConversationMemory`、`InMemoryConversation`

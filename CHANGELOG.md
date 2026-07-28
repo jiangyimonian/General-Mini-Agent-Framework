@@ -5,6 +5,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0] - 2026-07-28
+
+### 新增
+
+- 异步模型协议：`AsyncChatModel`、`AsyncStreamingChatModel`、`AsyncLLM`
+- `AsyncLLM` 支持 `async with` 生命周期管理、异步重试和 SSE 流式响应
+- 异步工具注册与执行：`AsyncToolRegistry`、`execute_async()`
+- 工具 timeout 配置：超过 deadline 返回 `tool_timeout` observation
+- `CancelledError` 从模型、工具、Agent 原样传播
+- 异步 Agent：`AsyncAgent.run_async()` 和 `run_stream_async()`
+- `demo/reasoning_async.py` 异步示例
+
+### 变更
+
+- 同步 callable 通过 `asyncio.to_thread()` 在后台线程执行
+- 取消等待不会终止后台线程，同步工具可能继续产生副作用
+- 版本号更新为 0.6.0
+
 ## [0.5.0] - 2026-07-27
 
 ### 新增

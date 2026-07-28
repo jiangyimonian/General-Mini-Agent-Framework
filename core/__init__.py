@@ -1,4 +1,7 @@
 from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, StreamEvent, TraceEvent
+from .async_agent import AsyncAgent
+from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
+from .async_tools import AsyncToolRegistry
 from .context import (
     ApproximateTokenCounter,
     ContextBudgetExceeded,
@@ -64,6 +67,13 @@ from .tools import (
 from .memory import LongTermMemory, SlidingWindowMemory
 
 __all__ = [
+    # 异步模型与 Agent
+    "AsyncChatModel",
+    "AsyncLLM",
+    "AsyncStreamingChatModel",
+    "AsyncToolRegistry",
+    "AsyncAgent",
+    # 同步模型与 Agent
     "ChatModel",
     "LLM",
     "LLMConfig",
@@ -72,6 +82,7 @@ __all__ = [
     "StreamChunk",
     "StreamingChatModel",
     "ToolCallDelta",
+    # 工具
     "tool",
     "Tool",
     "ToolRegistry",
@@ -80,12 +91,14 @@ __all__ = [
     "ToolAuthorizationRequest",
     "ToolAuthorizationDecision",
     "ToolAuthorizationPolicy",
+    # Agent
     "Agent",
     "AgentConfig",
     "AgentResult",
     "AgentStopReason",
     "StreamEvent",
     "TraceEvent",
+    # Debate
     "ConvergenceCheck",
     "Debate",
     "DebateAgentEvent",
@@ -100,14 +113,17 @@ __all__ = [
     "DebateStreamEvent",
     "DebateTurn",
     "create_debate",
+    # 上下文
     "TokenCounter",
     "ApproximateTokenCounter",
     "ContextPolicy",
     "TokenBudgetContext",
     "SummarizingContext",
     "ContextBudgetExceeded",
+    # 记忆
     "ConversationMemory",
     "InMemoryConversation",
+    # 长期记忆
     "MemoryScope",
     "MetadataValue",
     "MemoryNamespace",
@@ -120,6 +136,7 @@ __all__ = [
     "ChromaMemoryStore",
     "create_memory_record",
     "build_memory_context",
+    # 兼容导出
     "SlidingWindowMemory",
     "LongTermMemory",
 ]

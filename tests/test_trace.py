@@ -2,8 +2,6 @@
 
 from datetime import UTC, datetime
 
-import pytest
-
 from core.events import RunEvent
 from core.trace import trace_to_html
 from core.trace_json import TraceDocument
@@ -59,7 +57,13 @@ class TestTraceDocumentToHtml:
                 occurred_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
                 elapsed_ms=500.0,
                 type="model_request_finished",
-                payload={"usage": {"total_tokens": 100, "prompt_tokens": 80, "completion_tokens": 20}},
+                payload={
+                    "usage": {
+                        "total_tokens": 100,
+                        "prompt_tokens": 80,
+                        "completion_tokens": 20,
+                    }
+                },
             ),
         )
         doc = TraceDocument(schema_version=1, root_run_id="run-1", events=events)

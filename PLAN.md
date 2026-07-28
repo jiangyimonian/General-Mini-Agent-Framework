@@ -2,8 +2,9 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.7.0`
-在稳定的同步、流式和异步执行之上，增加统一运行标识、事件 envelope 和版本化 JSON trace。
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.8.0`
+在 `0.7.1` 的统一运行标识、事件 envelope、版本化 JSON trace 和 HTML 报告之上，
+增加可组合的工作流节点：串行、有限并行和条件路由。
 
 ## 设计原则
 
@@ -14,9 +15,9 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.7.0 稳定边界
+## 0.8.0 稳定边界
 
-`0.7.0` 包含并保持 `0.6.0` 的全部同步、流式和异步契约。
+`0.8.0` 包含并保持 `0.7.1` 的全部同步、流式、异步、事件和 trace 契约。
 
 ### `core/events.py`
 
@@ -30,6 +31,32 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 
 事件层不拥有业务状态，只在状态变化边界发出事件。序号从 1 严格递增，耗时来自
 monotonic clock。sink 异常原样传播，不转换为模型错误。
+
+### `core/workflow.py`
+
+负责可组合的工作流节点：
+
+- `WorkflowNode` 协议定义 `run(value, run_context, emitter)` 异步方法
+- `Workflow` 工作流入口，持有根节点和可选事件 sink
+- `NodeResult` 不可变节点结果，包含 value、run_id 和可选 error
+- `SequenceNode` 串行节点，依次执行子节点，传递前一节点输出
+- `ParallelNode` 并行节点，有限并发执行，结果按声明顺序排列
+- `ConditionalNode` 条件节点，根据 predicate 选择分支
+
+工作流实例不保存运行结果，重复/并发运行完全隔离。并行节点有正整数并发上限，
+支持 `fail_fast` 和 `collect_errors` 两种错误策略。`CancelledError` 原样传播，
+其他异常转换为脱敏 `node_error`。节点值必须是合法 JSON 值。
+
+### `core/workflow_adapters.py`
+
+负责 Agent 和 Debate 到工作流节点的适配：
+
+- `AgentNode` 包装同步 `Agent`，要求字符串输入
+- `AsyncAgentNode` 包装 `AsyncAgent`，要求字符串输入
+- `DebateNode` 包装 `Debate`，要求字符串输入
+
+适配器将 `AgentResult` 和 `DebateResult` 转换为 `NodeResult`，非字符串输入返回
+`invalid_node_input` 错误码。
 
 ### `core/trace_json.py`
 
@@ -150,16 +177,15 @@ JSON 使用 `ensure_ascii=False`、`sort_keys=True`、`allow_nan=False`。导入
 
 ## 实验性模块
 
-以下能力保留用于实验，不属于 `0.4.1` 稳定 API：
+以下能力保留用于实验，不属于 `0.8.0` 稳定 API：
 
 - `core/memory.py` 中的 `SlidingWindowMemory` 和 ChromaDB `LongTermMemory`
-- `core/trace.py`：HTML 轨迹渲染
 
 实验模块可以修改接口和行为。稳定化顺序见 [ROADMAP.md](ROADMAP.md)。
 
 ## 公共接口
 
-`core/__init__.py` 中的 `0.7.0` 稳定导出为：
+`core/__init__.py` 中的 `0.8.0` 稳定导出为：
 
 - `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -175,6 +201,9 @@ JSON 使用 `ensure_ascii=False`、`sort_keys=True`、`allow_nan=False`。导入
 - `DebateStopReason`、`DebateStreamEvent`、`ConvergenceCheck`、`create_debate`
 - `RunContext`、`RunEvent`、`EventSink`、`EventCollector`、`RunEventEmitter`
 - `TraceDocument`、`trace_to_json`、`trace_from_json`、`export_trace_json`
+- `Workflow`、`WorkflowNode`、`WorkflowResult`、`NodeResult`、`WorkflowStopReason`
+- `SequenceNode`、`ParallelNode`、`ParallelErrorPolicy`、`ConditionalNode`
+- `AgentNode`、`AsyncAgentNode`、`DebateNode`
 
 `SlidingWindowMemory` 和 `LongTermMemory` 仅为兼容现有调用而继续导出，不构成稳定 API。
 

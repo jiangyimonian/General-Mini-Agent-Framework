@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.llm import LLMConfig, LLMResponse, ToolCall
+from core.llm import LLMResponse, ToolCall
 
 
 @dataclass

@@ -5,6 +5,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] - 2026-07-28
+
+### 新增
+
+- 工作流节点：`Workflow`、`WorkflowNode` 协议、`WorkflowResult`
+- 串行节点：`SequenceNode` 依次执行，传递前一节点输出
+- 并行节点：`ParallelNode` 有限并发，结果按声明顺序排列
+- 条件节点：`ConditionalNode` 根据 predicate 选择分支
+- 错误策略：`fail_fast` 和 `collect_errors`
+- 适配器：`AgentNode`、`AsyncAgentNode`、`DebateNode`
+- 离线工作流 Demo：`demo/workflow_demo.py`
+
+### 变更
+
+- 版本号更新为 0.8.0
+- PLAN.md 新增 workflow.py 和 workflow_adapters.py 模块说明
+- ROADMAP.md 移除已稳定的编排条目
+
 ## [0.7.1] - 2026-07-28
 
 ### 新增

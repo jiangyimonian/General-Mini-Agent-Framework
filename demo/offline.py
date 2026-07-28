@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -27,9 +26,7 @@ from core.events import EventCollector
 from core.tools import tool
 from core.trace import export_trace_html
 from core.trace_json import TraceDocument
-
 from demo.scripted_models import ScriptedChatModel, agent_with_tool_response, debate_responses
-
 
 # ─── 工具定义 ────────────────────────────────────────────────────────
 

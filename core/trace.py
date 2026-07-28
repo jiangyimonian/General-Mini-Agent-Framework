@@ -18,9 +18,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from .events import RunEvent
 from .trace_json import TraceDocument
-
 
 # ─── 稳定 API：TraceDocument → HTML ────────────────────────────────────────
 
@@ -244,7 +242,12 @@ body {{
 .stat-value.positive {{ color: var(--green); }}
 .stat-value.negative {{ color: var(--red); }}
 .stat-value.na {{ color: var(--dim); }}
-.stat-label {{ font-size: .65rem; text-transform: uppercase; color: var(--dim); margin-top: .25rem; }}
+.stat-label {{
+    font-size: .65rem;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-top: .25rem;
+}}
 
 .diff-card {{
     background: linear-gradient(135deg, #1e1b4b 0%, #1a1d2e 100%);
@@ -549,7 +552,9 @@ body {{
         </select>
     </div>
     <button class="btn-reset" onclick="resetFilters()">Reset</button>
-    <div class="result-count" aria-live="polite"><span id="visible-count">0</span> / <span id="total-count">0</span> events</div>
+    <div class="result-count" aria-live="polite">
+        <span id="visible-count">0</span> / <span id="total-count">0</span> events
+    </div>
 </div>
 
 <div id="events" class="events"></div>
@@ -609,7 +614,9 @@ const eventsEl = document.getElementById('events');
 
 EVENTS.forEach(event => {{
     const stopReason = event.payload && event.payload.stop_reason ? event.payload.stop_reason : '';
-    const hasError = event.payload && (event.payload.error || stopReason === 'error' || stopReason === 'model_error');
+    const hasError = event.payload && (
+        event.payload.error || stopReason === 'error' || stopReason === 'model_error'
+    );
     const typeClass = event.type + (hasError ? ' error' : '');
 
     const div = document.createElement('div');

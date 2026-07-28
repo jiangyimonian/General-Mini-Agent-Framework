@@ -11,10 +11,10 @@ def test_pyproject_declares_core_runtime_and_dev_extra() -> None:
     assert '"ruff>=' in content
 
 
-def test_pyproject_declares_version_0_7_1() -> None:
+def test_pyproject_declares_version_0_8_0() -> None:
     content = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'version = "0.7.1"' in content
+    assert 'version = "0.8.0"' in content
 
 
 def test_ci_verifies_installed_wheel_against_project_version() -> None:

@@ -1,13 +1,13 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.7.1`
-在 `0.7.0` 的统一运行标识、事件 envelope 和版本化 JSON trace 之上，稳定 HTML
-报告渲染、过滤和双运行对比，并提供完全离线的框架示例。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.8.0`
+在 `0.7.1` 的统一运行标识、事件 envelope、版本化 JSON trace 和 HTML 报告之上，
+增加可组合的工作流节点：串行、有限并行和条件路由。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.7.1 稳定能力
+## 0.8.0 稳定能力
 
 ### 同步 API（继承自 0.5.0）
 
@@ -85,6 +85,45 @@ python demo/offline.py
 
 不读取 `.env`，不访问网络。
 
+### 工作流节点（0.8.0 新增）
+
+提供可组合、可取消、可观察的串行、有限并行和条件路由节点：
+
+- `Workflow`：工作流入口，持有根节点和事件 sink
+- `SequenceNode`：串行节点，依次执行子节点，传递前一节点输出
+- `ParallelNode`：并行节点，并发执行子节点，结果按声明顺序排列
+- `ConditionalNode`：条件节点，根据 predicate 选择分支
+
+工作流示例：
+
+```bash
+python demo/workflow_demo.py
+```
+
+```python
+from core import Workflow, SequenceNode, ParallelNode, ConditionalNode
+
+# 并行生成两个候选
+parallel = ParallelNode(
+    [GenerateNode(), GenerateNode()],
+    max_concurrency=2,
+)
+
+# 条件选择
+conditional = ConditionalNode(
+    predicate=lambda v: len(v) > 0,
+    when_true=SelectBestNode(),
+    when_false=NoCandidateNode(),
+)
+
+# 串行组合
+workflow = Workflow(root=SequenceNode([parallel, conditional]))
+result = await workflow.run("start")
+```
+
+工作流实例不保存运行结果，重复/并发运行完全隔离。并行节点有正整数并发上限。
+不包含循环、持久化、队列或分布式执行。
+
 ## 项目结构
 
 ```text
@@ -99,12 +138,15 @@ core/
 ├── events.py         # 运行上下文与事件 envelope
 ├── trace_json.py     # 版本化 JSON trace 导出
 ├── trace.py          # HTML 报告渲染
+├── workflow.py       # 工作流节点
+├── workflow_adapters.py # Agent/Debate 适配器
 demo/
 ├── reasoning.py      # 同步示例
 ├── reasoning_stream.py # 稳定流式示例
 ├── chat.py           # 0.3.0 上下文与会话记忆示例
 ├── long_term_memory.py # 0.3.1 持久化长期记忆示例
 ├── offline.py        # 离线 Demo（无网络）
+├── workflow_demo.py  # 工作流 Demo
 ├── scripted_models.py # 脚本化模型
 ├── debate_demo.py
 └── export_demo.py

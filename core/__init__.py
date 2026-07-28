@@ -68,12 +68,33 @@ from .tools import (
     ToolRegistry,
     tool,
 )
+from .trace import (
+    compare_traces_to_html,
+    debate_to_html,
+    export_trace_html,
+    export_trace_html as export_trace,
+    render_html,
+    trace_to_html,
+)
 from .trace_json import (
     TraceDocument,
     export_trace_json,
     trace_from_json,
     trace_to_json,
 )
+from .workflow import (
+    ConditionalNode,
+    JSONValue,
+    NodeResult,
+    ParallelNode,
+    ParallelErrorPolicy,
+    SequenceNode,
+    Workflow,
+    WorkflowNode,
+    WorkflowResult,
+    WorkflowStopReason,
+)
+from .workflow_adapters import AgentNode, AsyncAgentNode, DebateNode
 
 # isort: split
 # Experimental compatibility exports; not part of the stable API.
@@ -163,4 +184,19 @@ __all__ = [
     # 兼容导出
     "SlidingWindowMemory",
     "LongTermMemory",
+    # 工作流
+    "Workflow",
+    "WorkflowNode",
+    "WorkflowResult",
+    "NodeResult",
+    "JSONValue",
+    "WorkflowStopReason",
+    "SequenceNode",
+    "ParallelNode",
+    "ParallelErrorPolicy",
+    "ConditionalNode",
+    # 工作流适配器
+    "AsyncAgentNode",
+    "AgentNode",
+    "DebateNode",
 ]

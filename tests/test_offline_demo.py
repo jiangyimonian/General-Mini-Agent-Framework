@@ -1,7 +1,6 @@
 """测试离线 Demo：无环境变量、无网络。"""
 
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -9,7 +8,11 @@ import pytest
 class TestOfflineDemo:
     """测试离线 Demo 端到端。"""
 
-    def test_offline_produces_four_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_offline_produces_four_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """离线 Demo 生成四个文件。"""
         # 清空环境变量
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)

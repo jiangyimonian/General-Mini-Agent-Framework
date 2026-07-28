@@ -18,11 +18,11 @@ class ScriptedAgent:
         self._responses = deque(responses)
         self.inputs: list[str] = []
 
-    def run(self, user_input: str) -> AgentResult:
+    def run(self, user_input: str, *, run_context=None) -> AgentResult:
         self.inputs.append(user_input)
         return self._responses.popleft()
 
-    def run_stream(self, user_input: str):
+    def run_stream(self, user_input: str, *, run_context=None):
         self.inputs.append(user_input)
         result = self._responses.popleft()
         event = {
@@ -95,20 +95,23 @@ def test_sync_run_returns_typed_round_and_separate_judge_turn() -> None:
     assert result.total_usage == {"total_tokens": 5}
     assert isinstance(result.rounds[0], DebateRound)
     assert result.rounds[0].number == 1
-    assert result.rounds[0].turns == [
-        DebateTurn(
-            role="Solver",
-            content="proposal",
-            usage={"total_tokens": 2},
-            stop_reason="completed",
-        )
-    ]
-    assert result.judge_turn == DebateTurn(
-        role="Judge",
-        content="verdict",
-        usage={"total_tokens": 3},
-        stop_reason="completed",
-    )
+    assert len(result.rounds[0].turns) == 1
+    turn = result.rounds[0].turns[0]
+    assert turn.role == "Solver"
+    assert turn.content == "proposal"
+    assert turn.usage == {"total_tokens": 2}
+    assert turn.stop_reason == "completed"
+    assert turn.run_id  # non-empty
+
+    assert result.judge_turn is not None
+    assert result.judge_turn.role == "Judge"
+    assert result.judge_turn.content == "verdict"
+    assert result.judge_turn.usage == {"total_tokens": 3}
+    assert result.judge_turn.stop_reason == "completed"
+    assert result.judge_turn.run_id  # non-empty
+
+    # Debate run_id should be set
+    assert result.run_id
 
 
 def test_repeated_sync_runs_do_not_share_context() -> None:

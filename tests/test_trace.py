@@ -98,6 +98,76 @@ class TestTraceDocumentToHtml:
         assert "Solver" in html
 
 
+class TestHtmlFiltering:
+    """测试 HTML 过滤功能。"""
+
+    def test_html_contains_filter_controls(self) -> None:
+        """HTML 包含过滤控件。"""
+        events = (
+            RunEvent(
+                run_id="run-1",
+                parent_run_id=None,
+                sequence=1,
+                occurred_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
+                elapsed_ms=0.0,
+                type="run_started",
+                payload={"input": "test"},
+            ),
+            RunEvent(
+                run_id="run-1",
+                parent_run_id=None,
+                sequence=2,
+                occurred_at=datetime(2026, 1, 1, 12, 0, 1, tzinfo=UTC),
+                elapsed_ms=1000.0,
+                type="run_finished",
+                payload={"stop_reason": "completed"},
+            ),
+            RunEvent(
+                run_id="run-1",
+                parent_run_id=None,
+                sequence=3,
+                occurred_at=datetime(2026, 1, 1, 12, 0, 2, tzinfo=UTC),
+                elapsed_ms=2000.0,
+                type="run_finished",
+                payload={"stop_reason": "error", "error": "something failed"},
+            ),
+        )
+        doc = TraceDocument(schema_version=1, root_run_id="run-1", events=events)
+
+        html = trace_to_html(doc)
+
+        # 过滤控件存在
+        assert 'id="filter-type"' in html
+        assert 'id="filter-run"' in html
+        assert 'id="filter-stop"' in html
+        assert 'id="filter-error"' in html
+        # JavaScript 设置 data 属性逻辑存在
+        assert "data-event-type" in html
+        assert "data-run-id" in html
+        assert "data-stop-reason" in html
+        assert "applyFilters" in html
+
+    def test_filter_controls_have_labels(self) -> None:
+        """过滤控件有 label。"""
+        events = (
+            RunEvent(
+                run_id="run-1",
+                parent_run_id=None,
+                sequence=1,
+                occurred_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
+                elapsed_ms=0.0,
+                type="run_started",
+                payload={},
+            ),
+        )
+        doc = TraceDocument(schema_version=1, root_run_id="run-1", events=events)
+
+        html = trace_to_html(doc)
+
+        assert "<label" in html
+        assert 'for="filter-type"' in html
+
+
 class TestHtmlSecurity:
     """测试 HTML 安全性。"""
 

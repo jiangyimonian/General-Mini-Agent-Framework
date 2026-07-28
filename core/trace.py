@@ -140,12 +140,56 @@ body {{
 }}
 .header {{
     text-align: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
     border-bottom: 1px solid var(--border);
 }}
 .header h1 {{ font-size: 1.5rem; color: var(--accent); margin-bottom: .5rem; }}
 .run-id {{ font-size: .75rem; color: var(--dim); font-family: var(--mono); }}
+
+/* Filters */
+.filters {{
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1rem;
+    background: var(--card);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    align-items: center;
+}}
+.filter-group {{
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}}
+.filter-group label {{
+    font-size: .75rem;
+    color: var(--dim);
+}}
+.filter-group select {{
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .25rem .5rem;
+    font-size: .8rem;
+}}
+.filter-group select:focus {{
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}}
+.btn-reset {{
+    background: var(--border);
+    color: var(--text);
+    border: none;
+    border-radius: 4px;
+    padding: .25rem .75rem;
+    font-size: .8rem;
+    cursor: pointer;
+}}
+.btn-reset:hover {{ background: var(--accent); }}
+.result-count {{ font-size: .8rem; color: var(--dim); margin-left: auto; }}
 
 /* Events */
 .events {{ margin-top: 1rem; }}
@@ -173,6 +217,7 @@ body {{
 .event-type.run_finished {{ background: var(--green); color: #fff; }}
 .event-type.model_request_finished {{ background: var(--cyan); color: #000; }}
 .event-type.tool_finished {{ background: var(--yellow); color: #000; }}
+.event-type.run_finished.error {{ background: var(--red); color: #fff; }}
 .event-seq {{ font-size: .7rem; color: var(--dim); }}
 .event-elapsed {{ font-size: .7rem; color: var(--dim); margin-left: auto; }}
 .event-body {{
@@ -189,6 +234,7 @@ body {{
     overflow-x: auto;
     white-space: pre-wrap;
 }}
+.event.hidden {{ display: none; }}
 
 /* Stats */
 .stats {{
@@ -214,6 +260,36 @@ body {{
     <div class="run-id">Run: <span id="run-id"></span></div>
 </div>
 
+<div class="filters" role="search" aria-label="Filter events">
+    <div class="filter-group">
+        <label for="filter-type">Event Type</label>
+        <select id="filter-type">
+            <option value="">All</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label for="filter-run">Run ID</label>
+        <select id="filter-run">
+            <option value="">All</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label for="filter-stop">Stop Reason</label>
+        <select id="filter-stop">
+            <option value="">All</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label for="filter-error">Errors Only</label>
+        <select id="filter-error">
+            <option value="">All</option>
+            <option value="error">Errors</option>
+        </select>
+    </div>
+    <button class="btn-reset" onclick="resetFilters()">Reset</button>
+    <div class="result-count" aria-live="polite"><span id="visible-count">0</span> / <span id="total-count">0</span> events</div>
+</div>
+
 <div id="events" class="events"></div>
 
 <div class="stats">
@@ -232,6 +308,7 @@ const EVENTS = {events_data};
 const ROOT_RUN_ID = {root_run_id};
 
 document.getElementById('run-id').textContent = ROOT_RUN_ID;
+document.getElementById('total-count').textContent = EVENTS.length;
 document.getElementById('event-count').textContent = EVENTS.length;
 
 let totalElapsed = 0;
@@ -240,13 +317,49 @@ EVENTS.forEach(e => {{
 }});
 document.getElementById('total-elapsed').textContent = totalElapsed.toFixed(1);
 
+// Build filter options from data
+const typeSet = new Set();
+const runSet = new Set();
+const stopSet = new Set();
+
+EVENTS.forEach(e => {{
+    typeSet.add(e.type);
+    if (e.run_id) runSet.add(e.run_id);
+    if (e.payload && e.payload.stop_reason) stopSet.add(e.payload.stop_reason);
+}});
+
+function populateSelect(id, values) {{
+    const sel = document.getElementById(id);
+    values.forEach(v => {{
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sel.appendChild(opt);
+    }});
+}}
+
+populateSelect('filter-type', Array.from(typeSet).sort());
+populateSelect('filter-run', Array.from(runSet).sort());
+populateSelect('filter-stop', Array.from(stopSet).sort());
+
+// Render events
 const eventsEl = document.getElementById('events');
+
 EVENTS.forEach(event => {{
+    const stopReason = event.payload && event.payload.stop_reason ? event.payload.stop_reason : '';
+    const hasError = event.payload && (event.payload.error || stopReason === 'error' || stopReason === 'model_error');
+    const typeClass = event.type + (hasError ? ' error' : '');
+
     const div = document.createElement('div');
     div.className = 'event open';
+    div.setAttribute('data-event-type', event.type);
+    div.setAttribute('data-run-id', event.run_id || '');
+    div.setAttribute('data-stop-reason', stopReason);
+    div.setAttribute('data-error', hasError ? 'true' : 'false');
+
     div.innerHTML = `
         <div class="event-header" onclick="this.parentElement.classList.toggle('open')">
-            <span class="event-type ${{event.type}}">${{event.type}}</span>
+            <span class="event-type ${{typeClass}}">${{event.type}}</span>
             <span class="event-seq">#${{event.sequence}}</span>
             <span class="event-elapsed">${{event.elapsed_ms.toFixed(1)}}ms</span>
         </div>
@@ -256,6 +369,45 @@ EVENTS.forEach(event => {{
     `;
     eventsEl.appendChild(div);
 }});
+
+// Filter logic
+function applyFilters() {{
+    const typeVal = document.getElementById('filter-type').value;
+    const runVal = document.getElementById('filter-run').value;
+    const stopVal = document.getElementById('filter-stop').value;
+    const errorVal = document.getElementById('filter-error').value;
+
+    const allEvents = document.querySelectorAll('.event');
+    let visible = 0;
+
+    allEvents.forEach(el => {{
+        const match = true
+            && (!typeVal || el.getAttribute('data-event-type') === typeVal)
+            && (!runVal || el.getAttribute('data-run-id') === runVal)
+            && (!stopVal || el.getAttribute('data-stop-reason') === stopVal)
+            && (!errorVal || errorVal === 'error' && el.getAttribute('data-error') === 'true');
+
+        el.classList.toggle('hidden', !match);
+        if (match) visible++;
+    }});
+
+    document.getElementById('visible-count').textContent = visible;
+}}
+
+document.getElementById('filter-type').addEventListener('change', applyFilters);
+document.getElementById('filter-run').addEventListener('change', applyFilters);
+document.getElementById('filter-stop').addEventListener('change', applyFilters);
+document.getElementById('filter-error').addEventListener('change', applyFilters);
+
+function resetFilters() {{
+    document.getElementById('filter-type').value = '';
+    document.getElementById('filter-run').value = '';
+    document.getElementById('filter-stop').value = '';
+    document.getElementById('filter-error').value = '';
+    applyFilters();
+}}
+
+applyFilters();
 </script>
 </body>
 </html>

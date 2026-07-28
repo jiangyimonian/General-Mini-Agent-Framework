@@ -235,3 +235,116 @@ class TestIdFactory:
         assert emitter.run_id == "custom-id-1"
         child = emitter.child()
         assert child.run_id == "custom-id-2"
+
+
+class TestTraceDocument:
+    """测试 TraceDocument 和 JSON 编解码。"""
+
+    def test_trace_document_roundtrip(self) -> None:
+        """TraceDocument 可以往返 JSON。"""
+        from core.trace_json import TraceDocument, trace_from_json, trace_to_json
+
+        collector = EventCollector()
+        emitter = RunEventEmitter(sink=collector)
+        emitter.emit("run_started", {"input": "test"})
+        emitter.emit("run_finished", {"stop_reason": "completed"})
+
+        doc = TraceDocument(
+            schema_version=1,
+            root_run_id=emitter.run_id,
+            events=collector.snapshot(),
+        )
+
+        json_str = trace_to_json(doc)
+        restored = trace_from_json(json_str)
+
+        assert restored.schema_version == 1
+        assert restored.root_run_id == emitter.run_id
+        assert len(restored.events) == 2
+        assert restored.events[0].type == "run_started"
+
+    def test_json_export_is_deterministic(self) -> None:
+        """JSON 导出是确定性的。"""
+        from core.trace_json import TraceDocument, trace_to_json
+
+        collector = EventCollector()
+        emitter = RunEventEmitter(sink=collector)
+        emitter.emit("test", {"b": 2, "a": 1})
+
+        doc = TraceDocument(
+            schema_version=1,
+            root_run_id=emitter.run_id,
+            events=collector.snapshot(),
+        )
+
+        json1 = trace_to_json(doc)
+        json2 = trace_to_json(doc)
+        assert json1 == json2
+
+    def test_reject_unknown_schema_version(self) -> None:
+        """拒绝未知 schema version。"""
+        from core.trace_json import trace_from_json
+
+        json_str = '{"schema_version": 99, "root_run_id": "test", "events": []}'
+        with pytest.raises(ValueError, match="schema_version"):
+            trace_from_json(json_str)
+
+    def test_reject_negative_elapsed(self) -> None:
+        """拒绝负 elapsed_ms。"""
+        from core.trace_json import TraceDocument, trace_to_json
+
+        event = RunEvent(
+            run_id="test",
+            parent_run_id=None,
+            sequence=1,
+            occurred_at=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
+            elapsed_ms=-1.0,
+            type="test",
+            payload={},
+        )
+        doc = TraceDocument(schema_version=1, root_run_id="test", events=(event,))
+        with pytest.raises(ValueError, match="elapsed_ms"):
+            trace_to_json(doc)
+
+    def test_json_export_sanitizes_model_error(self) -> None:
+        """模型错误导出不包含敏感信息。"""
+        from core.trace_json import TraceDocument, trace_to_json
+
+        from core.llm import ModelRequestError
+
+        # 创建包含敏感信息的模型错误
+        error = ModelRequestError(
+            "Authorization: Bearer sk-secret-key-12345 failed",
+            status_code=401,
+            endpoint="/chat/completions",
+            error_code="auth_error",
+        )
+
+        # 模拟 Agent 发射模型错误事件
+        collector = EventCollector()
+        emitter = RunEventEmitter(sink=collector)
+        emitter.emit("run_started", {"input": "test"})
+        emitter.emit(
+            "run_finished",
+            {
+                "stop_reason": "model_error",
+                "error": str(error),
+                "status_code": error.status_code,
+                "endpoint": error.endpoint,
+                "error_code": error.error_code,
+            },
+        )
+
+        doc = TraceDocument(
+            schema_version=1,
+            root_run_id=emitter.run_id,
+            events=collector.snapshot(),
+        )
+
+        json_str = trace_to_json(doc)
+
+        # 验证敏感信息不在 JSON 中
+        assert "sk-secret-key-12345" not in json_str
+        assert "Bearer sk-" not in json_str
+        # 验证脱敏标记存在
+        assert "[REDACTED]" in json_str

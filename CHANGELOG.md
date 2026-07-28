@@ -5,6 +5,28 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.0] - 2026-07-28
+
+### 新增
+
+- `general_mini_agent` 命名空间：稳定的公共 API 入口，导出所有公共组件
+- 模型能力适配器：`ProviderCapabilities` 自动检测并适配 OpenAI、DeepSeek、Claude 等服务商的工具调用差异
+- 统一配置：`FrameworkConfig` 提供框架级配置入口
+- 安全日志：自动脱敏 API Key、Authorization header 等敏感信息
+- 迁移文档：`docs/MIGRATING.md` 提供 `core` 到 `general_mini_agent` 的机械替换步骤
+
+### 变更
+
+- 版本号更新为 0.9.0
+- 所有文档和 Demo 更新为 `from general_mini_agent import` 导入风格
+- README 新增 0.9.0 能力说明和迁移指南链接
+- `docs/RELEASING.md` 更新验证命令使用新命名空间
+
+### 弃用
+
+- `core` 命名空间在 0.9.0 仍可使用，但将在 1.0.0 删除
+- 建议尽快迁移到 `general_mini_agent` 命名空间
+
 ## [0.8.0] - 2026-07-28
 
 ### 新增

@@ -44,13 +44,13 @@ python -m pytest tests -v
 ### Lint 检查
 
 ```bash
-ruff check core tests demo
+ruff check general_mini_agent core tests demo
 ```
 
 ### 字节码编译检查
 
 ```bash
-python -m compileall -q core demo tests
+python -m compileall -q general_mini_agent core demo tests
 ```
 
 ## 发行包验证
@@ -75,7 +75,7 @@ python -m twine check dist/*
 ```powershell
 python -m venv C:\tmp\release-venv
 C:\tmp\release-venv\Scripts\python -m pip install dist\*.whl
-C:\tmp\release-venv\Scripts\python -c "from importlib.metadata import version; from core import Agent, Debate, LLM, MemoryQuery; print(version('general-mini-agent-framework'))"
+C:\tmp\release-venv\Scripts\python -c "from importlib.metadata import version; from general_mini_agent import Agent, Debate, LLM, MemoryQuery; print(version('general-mini-agent-framework'))"
 ```
 
 在 Unix 系统上：
@@ -83,7 +83,7 @@ C:\tmp\release-venv\Scripts\python -c "from importlib.metadata import version; f
 ```bash
 python -m venv /tmp/release-venv
 /tmp/release-venv/bin/python -m pip install dist/*.whl
-/tmp/release-venv/bin/python -c "from importlib.metadata import version; from core import Agent, Debate, LLM, MemoryQuery; print(version('general-mini-agent-framework'))"
+/tmp/release-venv/bin/python -c "from importlib.metadata import version; from general_mini_agent import Agent, Debate, LLM, MemoryQuery; print(version('general-mini-agent-framework'))"
 ```
 
 输出应为发布版本号（如 `0.4.1`）。
@@ -126,7 +126,7 @@ git push origin v0.4.1
 
 **wheel 安装后导入失败**
 
-确认 `pyproject.toml` 的 `[tool.hatch.build.targets.wheel]` 正确配置了 `packages = ["core"]`。
+确认 `pyproject.toml` 的 `[tool.hatch.build.targets.wheel]` 正确配置了 `packages = ["general_mini_agent", "core"]`。
 
 **版本号不一致**
 

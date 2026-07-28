@@ -1,7 +1,13 @@
 # General Mini Agent Framework 路线图
 
-`0.8.0` 已稳定工作流节点：串行、有限并行和条件路由。路线图只记录尚未稳定或
-仍需实现的能力；当前稳定能力以 [README.md](README.md) 为准。
+`0.9.0` 已稳定模型能力适配、统一配置、安全日志和 `general_mini_agent` 命名空间。
+路线图只记录尚未稳定或仍需实现的能力；当前稳定能力以 [README.md](README.md) 为准。
+
+## 1.0.0 规划
+
+- 删除 `core` 命名空间，仅保留 `general_mini_agent`
+- 冻结公共 API 和 schema
+- 完善文档和示例
 
 ## 后续：异步扩展
 

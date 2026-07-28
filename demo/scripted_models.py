@@ -1,6 +1,6 @@
 """Demo 专用脚本化模型，用于离线测试。
 
-不访问网络，按队列返回预设响应。只用于 Demo 和测试，不从 core 导出。
+不访问网络，按队列返回预设响应。只用于 Demo 和测试，不从 general_mini_agent 导出。
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.llm import LLMResponse, ToolCall
+from general_mini_agent.llm import LLMResponse, ToolCall
 
 
 @dataclass

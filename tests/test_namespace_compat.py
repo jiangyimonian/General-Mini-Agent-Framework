@@ -1,6 +1,5 @@
 """测试命名空间兼容性和对象身份一致性。"""
 
-import importlib
 import warnings
 from pathlib import Path
 
@@ -11,7 +10,7 @@ def test_import_from_general_mini_agent_no_warning():
     """导入正式命名空间不应产生警告。"""
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        from general_mini_agent import Agent
+        from general_mini_agent import Agent  # noqa: F401
 
         assert len(w) == 0, f"导入正式命名空间不应产生警告，但得到: {[str(x.message) for x in w]}"
 
@@ -46,6 +45,7 @@ def test_object_identity_consistency():
 
     # 重新导入
     from general_mini_agent import (
+        LLM,
         Agent,
         AgentConfig,
         AgentResult,
@@ -56,16 +56,15 @@ def test_object_identity_consistency():
         AsyncStreamingChatModel,
         AsyncToolRegistry,
         ChatModel,
-        LLM,
+        Debate,
+        DebateConfig,
+        DebateResult,
+        DebateRole,
         LLMConfig,
         LLMResponse,
         StreamingChatModel,
         Tool,
         ToolRegistry,
-        Debate,
-        DebateConfig,
-        DebateResult,
-        DebateRole,
         Workflow,
         WorkflowNode,
         WorkflowResult,
@@ -75,28 +74,72 @@ def test_object_identity_consistency():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", DeprecationWarning)
         from core import (
-            Agent as LegacyAgent,
-            AgentConfig as LegacyAgentConfig,
-            AgentResult as LegacyAgentResult,
-            AgentStopReason as LegacyAgentStopReason,
-            AsyncAgent as LegacyAsyncAgent,
-            AsyncChatModel as LegacyAsyncChatModel,
-            AsyncLLM as LegacyAsyncLLM,
-            AsyncStreamingChatModel as LegacyAsyncStreamingChatModel,
-            AsyncToolRegistry as LegacyAsyncToolRegistry,
-            ChatModel as LegacyChatModel,
             LLM as LegacyLLM,
-            LLMConfig as LegacyLLMConfig,
-            LLMResponse as LegacyLLMResponse,
-            StreamingChatModel as LegacyStreamingChatModel,
-            Tool as LegacyTool,
-            ToolRegistry as LegacyToolRegistry,
+        )
+        from core import (
+            Agent as LegacyAgent,
+        )
+        from core import (
+            AgentConfig as LegacyAgentConfig,
+        )
+        from core import (
+            AgentResult as LegacyAgentResult,
+        )
+        from core import (
+            AgentStopReason as LegacyAgentStopReason,
+        )
+        from core import (
+            AsyncAgent as LegacyAsyncAgent,
+        )
+        from core import (
+            AsyncChatModel as LegacyAsyncChatModel,
+        )
+        from core import (
+            AsyncLLM as LegacyAsyncLLM,
+        )
+        from core import (
+            AsyncStreamingChatModel as LegacyAsyncStreamingChatModel,
+        )
+        from core import (
+            AsyncToolRegistry as LegacyAsyncToolRegistry,
+        )
+        from core import (
+            ChatModel as LegacyChatModel,
+        )
+        from core import (
             Debate as LegacyDebate,
+        )
+        from core import (
             DebateConfig as LegacyDebateConfig,
+        )
+        from core import (
             DebateResult as LegacyDebateResult,
+        )
+        from core import (
             DebateRole as LegacyDebateRole,
+        )
+        from core import (
+            LLMConfig as LegacyLLMConfig,
+        )
+        from core import (
+            LLMResponse as LegacyLLMResponse,
+        )
+        from core import (
+            StreamingChatModel as LegacyStreamingChatModel,
+        )
+        from core import (
+            Tool as LegacyTool,
+        )
+        from core import (
+            ToolRegistry as LegacyToolRegistry,
+        )
+        from core import (
             Workflow as LegacyWorkflow,
+        )
+        from core import (
             WorkflowNode as LegacyWorkflowNode,
+        )
+        from core import (
             WorkflowResult as LegacyWorkflowResult,
         )
 
@@ -108,7 +151,9 @@ def test_object_identity_consistency():
     assert AsyncAgent is LegacyAsyncAgent, "AsyncAgent 对象身份不一致"
     assert AsyncChatModel is LegacyAsyncChatModel, "AsyncChatModel 对象身份不一致"
     assert AsyncLLM is LegacyAsyncLLM, "AsyncLLM 对象身份不一致"
-    assert AsyncStreamingChatModel is LegacyAsyncStreamingChatModel, "AsyncStreamingChatModel 对象身份不一致"
+    assert AsyncStreamingChatModel is LegacyAsyncStreamingChatModel, (
+    "AsyncStreamingChatModel 对象身份不一致"
+)
     assert AsyncToolRegistry is LegacyAsyncToolRegistry, "AsyncToolRegistry 对象身份不一致"
     assert ChatModel is LegacyChatModel, "ChatModel 对象身份不一致"
     assert LLM is LegacyLLM, "LLM 对象身份不一致"

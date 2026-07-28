@@ -2,9 +2,9 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.8.0`
-在 `0.7.1` 的统一运行标识、事件 envelope、版本化 JSON trace 和 HTML 报告之上，
-增加可组合的工作流节点：串行、有限并行和条件路由。
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.9.0`
+在 `0.8.0` 的可组合工作流节点之上，新增模型能力适配器、统一配置和安全日志，
+并引入 `general_mini_agent` 命名空间作为稳定公共入口。
 
 ## 设计原则
 
@@ -15,9 +15,52 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.8.0 稳定边界
+## 0.9.0 稳定边界
 
-`0.8.0` 包含并保持 `0.7.1` 的全部同步、流式、异步、事件和 trace 契约。
+`0.9.0` 包含并保持 `0.8.0` 的全部同步、流式、异步、事件、trace 和工作流契约，
+新增模型能力适配、统一配置和安全日志。
+
+### `general_mini_agent/__init__.py`
+
+稳定公共 API 入口，导出所有公共组件：
+
+- 所有 `core/__init__.py` 导出的稳定组件
+- 兼容导出：确保 `from general_mini_agent import X` 与 `from core import X` 指向同一对象
+
+`general_mini_agent` 是推荐的稳定命名空间，`core` 在 0.9.0 弃用，将在 1.0.0 删除。
+
+### `general_mini_agent/providers.py`
+
+负责模型能力适配：
+
+- `ProviderCapabilities` 自动检测模型服务商（OpenAI、DeepSeek、Claude 等）
+- 适配工具调用的 JSON Schema 差异
+- 适配流式响应的 chunk 结构差异
+- 提供统一的工具调用和响应接口
+
+适配器隐藏服务商差异，框架其他部分使用统一接口。
+
+### `general_mini_agent/config.py`
+
+负责统一配置：
+
+- `FrameworkConfig` 框架级配置入口
+- 日志级别、安全日志开关等全局配置
+- 配置验证和默认值
+
+### `general_mini_agent/logging.py`
+
+负责安全日志：
+
+- 自动脱敏 API Key、Authorization header 等敏感信息
+- 提供 `get_logger()` 工厂函数
+- 兼容标准 logging 模块
+
+日志不记录完整请求体或响应体，不持有密钥明文。
+
+### 继承自 0.8.0 的模块
+
+`0.9.0` 包含并保持 `0.8.0` 的全部模块和契约。
 
 ### `core/events.py`
 
@@ -185,7 +228,18 @@ JSON 使用 `ensure_ascii=False`、`sort_keys=True`、`allow_nan=False`。导入
 
 ## 公共接口
 
-`core/__init__.py` 中的 `0.8.0` 稳定导出为：
+### `general_mini_agent/__init__.py`
+
+`general_mini_agent` 是推荐的稳定公共 API 入口。`0.9.0` 导出：
+
+- 所有 `core/__init__.py` 导出的稳定组件（见下文）
+- `providers.ProviderCapabilities`
+- `config.FrameworkConfig`
+- `logging.get_logger`
+
+### `core/__init__.py`
+
+`core` 命名空间在 0.9.0 弃用，将在 1.0.0 删除。当前导出为：
 
 - `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`

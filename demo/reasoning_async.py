@@ -9,7 +9,7 @@ import os
 
 from dotenv import load_dotenv
 
-from core import (
+from general_mini_agent import (
     AsyncAgent,
     AsyncLLM,
     InMemoryConversation,

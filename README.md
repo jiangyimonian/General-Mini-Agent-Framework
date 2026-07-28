@@ -1,13 +1,78 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.8.0`
-在 `0.7.1` 的统一运行标识、事件 envelope、版本化 JSON trace 和 HTML 报告之上，
-增加可组合的工作流节点：串行、有限并行和条件路由。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.9.0`
+在 `0.8.0` 的可组合工作流节点之上，新增模型能力适配器、统一配置和安全日志，
+并引入 `general_mini_agent` 命名空间作为稳定公共入口。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.8.0 稳定能力
+## 0.9.0 稳定能力
+
+### 新增命名空间
+
+`general_mini_agent` 是推荐的稳定公共入口：
+
+```python
+from general_mini_agent import Agent, AsyncAgent, Workflow
+```
+
+`core` 命名空间仍在 0.9.0 可用，但将在 1.0.0 删除。迁移步骤：
+
+```python
+# 旧导入（将在 1.0.0 删除）
+from core import Agent
+
+# 新导入
+from general_mini_agent import Agent
+```
+
+详见 [docs/MIGRATING.md](docs/MIGRATING.md)。
+
+### 模型能力适配器（0.9.0 新增）
+
+`ProviderCapabilities` 自动检测模型服务商并适配差异：
+
+- 检测 OpenAI、DeepSeek、Claude 等服务商
+- 适配工具调用的 JSON Schema 差异
+- 适配流式响应的 chunk 结构差异
+- 提供统一的工具调用和响应接口
+
+```python
+from general_mini_agent import LLM, LLMConfig
+from general_mini_agent.providers import ProviderCapabilities
+
+llm = LLM(LLMConfig(
+    api_key="<your-api-key>",
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com/v1",
+))
+# 自动检测并适配 DeepSeek 的工具调用格式
+```
+
+### 统一配置（0.9.0 新增）
+
+`FrameworkConfig` 提供统一的配置入口：
+
+```python
+from general_mini_agent.config import FrameworkConfig
+
+config = FrameworkConfig(
+    log_level="INFO",
+    enable_safe_logging=True,  # 脱敏敏感信息
+)
+```
+
+### 安全日志（0.9.0 新增）
+
+安全日志自动脱敏 API Key、Authorization header 等敏感信息：
+
+```python
+from general_mini_agent.logging import get_logger
+
+logger = get_logger(__name__)
+logger.info("API call", extra={"api_key": "sk-xxx"})  # 自动脱敏
+```
 
 ### 同步 API（继承自 0.5.0）
 
@@ -101,7 +166,7 @@ python demo/workflow_demo.py
 ```
 
 ```python
-from core import Workflow, SequenceNode, ParallelNode, ConditionalNode
+from general_mini_agent import Workflow, SequenceNode, ParallelNode, ConditionalNode
 
 # 并行生成两个候选
 parallel = ParallelNode(
@@ -127,7 +192,7 @@ result = await workflow.run("start")
 ## 项目结构
 
 ```text
-core/
+general_mini_agent/
 ├── agent.py          # 单 Agent 执行循环
 ├── context.py        # Token 计数和请求上下文策略
 ├── llm.py            # OpenAI 兼容模型客户端
@@ -140,6 +205,9 @@ core/
 ├── trace.py          # HTML 报告渲染
 ├── workflow.py       # 工作流节点
 ├── workflow_adapters.py # Agent/Debate 适配器
+├── providers.py      # 模型能力适配器
+├── config.py         # 统一配置
+├── logging.py        # 安全日志
 demo/
 ├── reasoning.py      # 同步示例
 ├── reasoning_stream.py # 稳定流式示例
@@ -197,7 +265,7 @@ LLM_RESERVED_OUTPUT_TOKENS=4096
 ## 快速开始
 
 ```python
-from core import (
+from general_mini_agent import (
     Agent,
     InMemoryConversation,
     LLM,
@@ -239,7 +307,7 @@ python demo/debate_demo.py
 
 ## 稳定 API
 
-`0.6.0` 的稳定公共入口由 `core` 包导出：
+`0.9.0` 的稳定公共入口由 `general_mini_agent` 包导出：
 
 - 同步模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -296,7 +364,7 @@ policy = TokenBudgetContext(
 读取必须显式选择更宽作用域。
 
 ```python
-from core import Agent, InMemoryLongTermStore, MemoryNamespace, MemoryQuery
+from general_mini_agent import Agent, InMemoryLongTermStore, MemoryNamespace, MemoryQuery
 
 namespace = MemoryNamespace("user-1", "conversation-1", "assistant")
 long_term_memory = InMemoryLongTermStore()
@@ -317,8 +385,11 @@ ChromaDB 仍是首次操作时才加载的可选依赖。
 长期记忆不包含自动记忆选择、自动写入、异步存储、复杂元数据表达式、重排序或分数归一化。
 
 `SlidingWindowMemory` 和 `LongTermMemory` 仅保留兼容导出，不属于稳定 API。
-`core.trace` 仍属于实验性模块。`SummarizingContext` 必须由调用方
+`general_mini_agent.trace` 仍属于实验性模块。`SummarizingContext` 必须由调用方
 显式提供摘要函数，不会在后台复用主模型；摘要失败时回退到确定性裁剪。
+
+**弃用说明**：`core` 命名空间在 0.9.0 仍可使用，但将在 1.0.0 删除。请迁移到
+`general_mini_agent` 命名空间。详见 [docs/MIGRATING.md](docs/MIGRATING.md)。
 
 ### 结构化工具结果
 
@@ -327,7 +398,7 @@ ChromaDB 仍是首次操作时才加载的可选依赖。
 使用确定性紧凑 JSON 序列化：
 
 ```python
-from core import ToolExecutionResult, tool
+from general_mini_agent import ToolExecutionResult, tool
 
 @tool
 def fetch() -> dict:
@@ -348,7 +419,7 @@ def fetch() -> dict:
 fail-closed：工具函数不会被调用。
 
 ```python
-from core import Agent, ToolAuthorizationDecision, ToolAuthorizationRequest
+from general_mini_agent import Agent, ToolAuthorizationDecision, ToolAuthorizationRequest
 
 class AllowSafeOnly:
     def authorize(self, request: ToolAuthorizationRequest):
@@ -372,7 +443,7 @@ agent = Agent(
 重复使用同一个 `Debate` 实例不会混入上一次运行。
 
 ```python
-from core import Debate, DebateConfig, DebateRole
+from general_mini_agent import Debate, DebateConfig, DebateRole
 
 debate = Debate(
     participants=[
@@ -408,8 +479,8 @@ python demo/export_demo.py debate
 
 ```bash
 python -m pytest tests -v
-python -m compileall -q core demo tests
-ruff check core tests demo
+python -m compileall -q general_mini_agent core demo tests
+ruff check general_mini_agent core tests demo
 ```
 
 ## 开发文档

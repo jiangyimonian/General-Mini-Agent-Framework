@@ -8,8 +8,8 @@ from core.providers import (
     DeepSeekAdapter,
     ModelCapabilityError,
     OpenAICompatibleAdapter,
-    ProviderCapabilities,
     ProviderAdapter,
+    ProviderCapabilities,
 )
 
 

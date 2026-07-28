@@ -1,6 +1,6 @@
 """Explicit persistent long-term memory without an LLM request."""
 
-from core import ChromaMemoryStore, MemoryNamespace, MemoryQuery
+from general_mini_agent import ChromaMemoryStore, MemoryNamespace, MemoryQuery
 
 namespace = MemoryNamespace(
     user_id="demo-user",

@@ -19,7 +19,7 @@ from pathlib import Path
 # 确保可以导入 core
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core import (
+from general_mini_agent import (
     ConditionalNode,
     EventCollector,
     ParallelNode,
@@ -28,7 +28,7 @@ from core import (
     export_trace_json,
     trace_to_html,
 )
-from core.trace_json import TraceDocument
+from general_mini_agent.trace_json import TraceDocument
 
 # ─── 简单节点定义 ────────────────────────────────────────────────────────
 
@@ -40,7 +40,7 @@ class ConstantNode:
         self._value = value
 
     async def run(self, value, *, run_context, emitter):
-        from core import NodeResult
+        from general_mini_agent import NodeResult
 
         return NodeResult(value=self._value, run_id=run_context.run_id)
 
@@ -52,7 +52,7 @@ class AppendNode:
         self._suffix = suffix
 
     async def run(self, value, *, run_context, emitter):
-        from core import NodeResult
+        from general_mini_agent import NodeResult
 
         new_value = str(value) + self._suffix
         return NodeResult(value=new_value, run_id=run_context.run_id)

@@ -16,9 +16,9 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.agent import Agent  # noqa: E402
-from core.llm import LLM, LLMConfig  # noqa: E402
-from core.tools import tool  # noqa: E402
+from general_mini_agent.agent import Agent  # noqa: E402
+from general_mini_agent.llm import LLM, LLMConfig  # noqa: E402
+from general_mini_agent.tools import tool  # noqa: E402
 
 # ─── 工具定义 ────────────────────────────────────────────────
 

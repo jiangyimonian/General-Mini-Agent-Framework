@@ -20,13 +20,13 @@ from pathlib import Path
 # 确保可以导入 core
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.agent import Agent
-from core.debate import create_debate
-from core.events import EventCollector
-from core.tools import tool
-from core.trace import export_trace_html
-from core.trace_json import TraceDocument
 from demo.scripted_models import ScriptedChatModel, agent_with_tool_response, debate_responses
+from general_mini_agent.agent import Agent
+from general_mini_agent.debate import create_debate
+from general_mini_agent.events import EventCollector
+from general_mini_agent.tools import tool
+from general_mini_agent.trace import export_trace_html
+from general_mini_agent.trace_json import TraceDocument
 
 # ─── 工具定义 ────────────────────────────────────────────────────────
 
@@ -68,7 +68,7 @@ def run_agent_scenario(output_dir: Path) -> tuple[str, str]:
     html_path = output_dir / "offline-agent.html"
 
     # 导出
-    from core.trace_json import export_trace_json
+    from general_mini_agent.trace_json import export_trace_json
     export_trace_json(doc, json_path)
     export_trace_html(doc, html_path, title="Offline Agent Trace")
 
@@ -121,7 +121,7 @@ def run_debate_scenario(output_dir: Path) -> tuple[str, str]:
     html_path = output_dir / "offline-debate.html"
 
     # 导出
-    from core.trace_json import export_trace_json
+    from general_mini_agent.trace_json import export_trace_json
     export_trace_json(doc, json_path)
     export_trace_html(doc, html_path, title="Offline Debate Trace")
 

@@ -19,13 +19,13 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.agent import Agent  # noqa: E402
-from core.debate import create_debate  # noqa: E402
-from core.events import EventCollector  # noqa: E402
-from core.llm import LLM, LLMConfig  # noqa: E402
-from core.tools import tool  # noqa: E402
-from core.trace import export_debate, export_trace  # noqa: E402
-from core.trace_json import TraceDocument, export_trace_json  # noqa: E402
+from general_mini_agent.agent import Agent  # noqa: E402
+from general_mini_agent.debate import create_debate  # noqa: E402
+from general_mini_agent.events import EventCollector  # noqa: E402
+from general_mini_agent.llm import LLM, LLMConfig  # noqa: E402
+from general_mini_agent.tools import tool  # noqa: E402
+from general_mini_agent.trace import export_debate, export_trace  # noqa: E402
+from general_mini_agent.trace_json import TraceDocument, export_trace_json  # noqa: E402
 
 
 @tool(description="计算数学表达式的值")

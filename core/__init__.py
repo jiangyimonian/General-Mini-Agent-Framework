@@ -103,6 +103,7 @@ from .workflow import (
     WorkflowStopReason,
 )
 from .workflow_adapters import AgentNode, AsyncAgentNode, DebateNode
+from .logging import get_logger, safe_log_fields
 
 # isort: split
 # Experimental compatibility exports; not part of the stable API.
@@ -219,4 +220,7 @@ __all__ = [
     "AsyncAgentNode",
     "AgentNode",
     "DebateNode",
+    # 日志
+    "get_logger",
+    "safe_log_fields",
 ]

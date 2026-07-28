@@ -9,15 +9,260 @@ Trace → HTML 渲染器 — 将 Agent 推理轨迹导出为可交互的 HTML �
     result = agent.run("what is 2+2?")
 
     html = render_html(result, question="what is 2+2?")
-    with open("trace.html", "w") as f:
-        f.write(html)
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import asdict, is_dataclass
+from pathlib import Path
 from typing import Any
+
+from .events import RunEvent
+from .trace_json import TraceDocument
+
+
+# ─── 稳定 API：TraceDocument → HTML ────────────────────────────────────────
+
+
+def trace_to_html(
+    document: TraceDocument,
+    *,
+    title: str = "Agent Trace",
+) -> str:
+    """将 TraceDocument 渲染为自包含 HTML 页面。
+
+    Args:
+        document: TraceDocument 实例（schema_version 必须为 1）
+        title: 页面标题
+
+    Returns:
+        自包含的 HTML 字符串
+    """
+    if document.schema_version != 1:
+        raise ValueError(f"unsupported schema_version: {document.schema_version}")
+
+    # 安全嵌入 JSON，转义特殊字符
+    events_json = _safe_json_script(document.events)
+    root_run_id_json = json.dumps(document.root_run_id, ensure_ascii=False)
+
+    return _TRACE_HTML_TEMPLATE.format(
+        title=title,
+        root_run_id=root_run_id_json,
+        events_data=events_json,
+    )
+
+
+def export_trace_html(
+    document: TraceDocument,
+    path: str | Path,
+    *,
+    title: str = "Agent Trace",
+) -> None:
+    """将 TraceDocument 导出为 HTML 文件。
+
+    Args:
+        document: TraceDocument 实例
+        path: 输出文件路径
+        title: 页面标题
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    html = trace_to_html(document, title=title)
+    path.write_text(html, encoding="utf-8")
+
+
+def _safe_json_script(data: Any) -> str:
+    """生成安全的 JSON 数据，可嵌入 <script> 标签。
+
+    转义规则：
+    - < → \\u003c
+    - > → \\u003e
+    - & → \\u0026
+    - 行分隔符 \\u2028 和段落分隔符 \\u2029
+    """
+    # 使用 dataclass 的 asdict 进行转换
+    from dataclasses import asdict, is_dataclass
+
+    def to_jsonable(obj: Any) -> Any:
+        if isinstance(obj, (str, int, float, bool, type(None))):
+            return obj
+        if is_dataclass(obj):
+            return {k: to_jsonable(v) for k, v in asdict(obj).items()}
+        if isinstance(obj, dict):
+            return {k: to_jsonable(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [to_jsonable(item) for item in obj]
+        return str(obj)
+
+    json_str = json.dumps(to_jsonable(data), ensure_ascii=False, indent=2)
+    # JSON 安全转义
+    return (
+        json_str.replace("\\", "\\\\")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace(" ", "\\u2028")
+        .replace(" ", "\\u2029")
+    )
+
+
+_TRACE_HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<style>
+:root {{
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --border: #2a2d3e;
+    --text: #e1e1e1;
+    --dim: #6b7280;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --cyan: #06b6d4;
+    --red: #ef4444;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}}
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 900px;
+    margin: 0 auto;
+}}
+.header {{
+    text-align: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+}}
+.header h1 {{ font-size: 1.5rem; color: var(--accent); margin-bottom: .5rem; }}
+.run-id {{ font-size: .75rem; color: var(--dim); font-family: var(--mono); }}
+
+/* Events */
+.events {{ margin-top: 1rem; }}
+.event {{
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: .5rem;
+    overflow: hidden;
+}}
+.event-header {{
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .5rem .75rem;
+    background: var(--card);
+    cursor: pointer;
+}}
+.event-type {{
+    font-size: .75rem;
+    font-weight: 600;
+    padding: .2rem .5rem;
+    border-radius: 4px;
+}}
+.event-type.run_started {{ background: var(--accent); color: #fff; }}
+.event-type.run_finished {{ background: var(--green); color: #fff; }}
+.event-type.model_request_finished {{ background: var(--cyan); color: #000; }}
+.event-type.tool_finished {{ background: var(--yellow); color: #000; }}
+.event-seq {{ font-size: .7rem; color: var(--dim); }}
+.event-elapsed {{ font-size: .7rem; color: var(--dim); margin-left: auto; }}
+.event-body {{
+    display: none;
+    padding: .75rem;
+    font-size: .85rem;
+    border-top: 1px solid var(--border);
+    background: rgba(0,0,0,.2);
+}}
+.event.open .event-body {{ display: block; }}
+.event-body pre {{
+    font-family: var(--mono);
+    font-size: .8rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+}}
+
+/* Stats */
+.stats {{
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    padding: 1rem;
+    background: var(--card);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-top: 2rem;
+    flex-wrap: wrap;
+}}
+.stat {{ text-align: center; }}
+.stat-value {{ font-size: 1.2rem; font-weight: 700; color: var(--accent); }}
+.stat-label {{ font-size: .7rem; text-transform: uppercase; color: var(--dim); }}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🔍 Agent Trace</h1>
+    <div class="run-id">Run: <span id="run-id"></span></div>
+</div>
+
+<div id="events" class="events"></div>
+
+<div class="stats">
+    <div class="stat">
+        <div class="stat-value" id="event-count">-</div>
+        <div class="stat-label">Events</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value" id="total-elapsed">-</div>
+        <div class="stat-label">Total Elapsed (ms)</div>
+    </div>
+</div>
+
+<script>
+const EVENTS = {events_data};
+const ROOT_RUN_ID = {root_run_id};
+
+document.getElementById('run-id').textContent = ROOT_RUN_ID;
+document.getElementById('event-count').textContent = EVENTS.length;
+
+let totalElapsed = 0;
+EVENTS.forEach(e => {{
+    if (e.elapsed_ms > totalElapsed) totalElapsed = e.elapsed_ms;
+}});
+document.getElementById('total-elapsed').textContent = totalElapsed.toFixed(1);
+
+const eventsEl = document.getElementById('events');
+EVENTS.forEach(event => {{
+    const div = document.createElement('div');
+    div.className = 'event open';
+    div.innerHTML = `
+        <div class="event-header" onclick="this.parentElement.classList.toggle('open')">
+            <span class="event-type ${{event.type}}">${{event.type}}</span>
+            <span class="event-seq">#${{event.sequence}}</span>
+            <span class="event-elapsed">${{event.elapsed_ms.toFixed(1)}}ms</span>
+        </div>
+        <div class="event-body">
+            <pre>${{JSON.stringify(event.payload, null, 2)}}</pre>
+        </div>
+    `;
+    eventsEl.appendChild(div);
+}});
+</script>
+</body>
+</html>
+"""
+
+
+# ─── 旧 API（兼容包装，带 DeprecationWarning）──────────────────────────────
 
 
 def render_html(

@@ -24,6 +24,7 @@ from .agent import (
 from .async_llm import AsyncChatModel
 from .async_tools import AsyncToolRegistry
 from .context import ContextBudgetExceeded, ContextPolicy
+from .events import EventSink, RunContext, RunEventEmitter
 from .llm import ModelRequestError
 from .long_term_memory import (
     LongTermMemoryStore,
@@ -57,12 +58,14 @@ class AsyncAgent:
         long_term_memory: LongTermMemoryStore | None = None,
         tool_authorization_policy: ToolAuthorizationPolicy | None = None,
         default_tool_timeout: float | None = None,
+        event_sink: EventSink | None = None,
     ):
         self.llm = llm
         self.max_iterations = max_iterations
         self.memory = memory
         self.context_policy = context_policy
         self.long_term_memory = long_term_memory
+        self.event_sink = event_sink
 
         self.registry = AsyncToolRegistry(
             tools or [],
@@ -85,6 +88,7 @@ class AsyncAgent:
         user_input: str,
         *,
         memory_query: MemoryQuery | None = None,
+        run_context: RunContext | None = None,
     ) -> AgentResult:
         """异步 ReAct 循环主入口。
 
@@ -92,6 +96,16 @@ class AsyncAgent:
         """
         trace: list[TraceEvent] = []
         total_usage: dict[str, int] = {}
+
+        # 创建事件发射器
+        emitter = RunEventEmitter(
+            run_id=run_context.run_id if run_context else None,
+            parent_run_id=run_context.parent_run_id if run_context else None,
+            sink=self.event_sink,
+        )
+
+        # 发射运行开始事件
+        emitter.emit("run_started", {"input": user_input})
 
         # 构建初始消息
         try:
@@ -104,6 +118,7 @@ class AsyncAgent:
                 "error_code": "memory_error",
                 "message": error,
             })
+            emitter.emit("run_finished", {"stop_reason": "memory_error", "error": error})
             return AgentResult(
                 content="",
                 trace=trace,
@@ -111,6 +126,7 @@ class AsyncAgent:
                 iterations=0,
                 stop_reason="memory_error",
                 error=error,
+                run_id=emitter.run_id,
             )
         except ContextBudgetExceeded as exc:
             error = str(exc)
@@ -120,6 +136,7 @@ class AsyncAgent:
                 "error_code": "context_budget_exceeded",
                 "message": error,
             })
+            emitter.emit("run_finished", {"stop_reason": "context_budget_exceeded", "error": error})
             return AgentResult(
                 content="",
                 trace=trace,
@@ -127,6 +144,7 @@ class AsyncAgent:
                 iterations=0,
                 stop_reason="context_budget_exceeded",
                 error=error,
+                run_id=emitter.run_id,
             )
 
         # ── ReAct 循环 ────────────────────────────────
@@ -141,6 +159,9 @@ class AsyncAgent:
                     "error_code": "context_budget_exceeded",
                     "message": error,
                 })
+                emitter.emit(
+                    "run_finished", {"stop_reason": "context_budget_exceeded", "error": error}
+                )
                 return AgentResult(
                     content="",
                     trace=trace,
@@ -148,6 +169,7 @@ class AsyncAgent:
                     iterations=iteration,
                     stop_reason="context_budget_exceeded",
                     error=error,
+                    run_id=emitter.run_id,
                 )
 
             try:
@@ -161,6 +183,9 @@ class AsyncAgent:
                     "iteration": iteration,
                     "message": "model request failed",
                 })
+                emitter.emit(
+                    "run_finished", {"stop_reason": "model_error", "error": "model request failed"}
+                )
                 return AgentResult(
                     content="",
                     trace=trace,
@@ -168,6 +193,7 @@ class AsyncAgent:
                     iterations=iteration,
                     stop_reason="model_error",
                     error="model request failed",
+                    run_id=emitter.run_id,
                 )
 
             self._accumulate_usage(total_usage, response.usage)
@@ -229,11 +255,13 @@ class AsyncAgent:
                 })
                 self._call_hook("on_final", trace[-1])
                 self._commit_exchange(user_input, clean_content)
+                emitter.emit("run_finished", {"stop_reason": "completed", "answer": clean_content})
                 return AgentResult(
                     content=clean_content,
                     trace=trace,
                     usage=total_usage,
                     iterations=iteration + 1,
+                    run_id=emitter.run_id,
                 )
 
             # 情况 3：response 既无 content 也无 tool_calls（极少数情况）
@@ -250,12 +278,14 @@ class AsyncAgent:
             "iteration": self.max_iterations,
             "message": "maximum iterations reached",
         })
+        emitter.emit("run_finished", {"stop_reason": "max_iterations"})
         return AgentResult(
             content="（已达最大迭代次数，未能得出最终答案）",
             trace=trace,
             usage=total_usage,
             iterations=self.max_iterations,
             stop_reason="max_iterations",
+            run_id=emitter.run_id,
         )
 
     def run_stream_async(

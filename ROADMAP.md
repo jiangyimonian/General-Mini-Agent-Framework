@@ -1,7 +1,7 @@
 # General Mini Agent Framework 路线图
 
-`0.6.0` 已稳定异步模型、Agent 和工具 timeout/cancel。路线图只记录尚未稳定或仍需实现的能力；
-当前稳定能力以 [README.md](README.md) 为准。
+`0.7.0` 已稳定统一运行标识、事件 envelope 和版本化 JSON trace。路线图只记录尚未稳定或
+仍需实现的能力；当前稳定能力以 [README.md](README.md) 为准。
 
 ## 后续：异步扩展
 
@@ -12,9 +12,6 @@
 ## 后续：编排与可观测性
 
 - 增加串行、并行和条件路由编排
-- 提供统一事件模型和运行 ID
-- 为 trace 增加耗时、错误和模型请求摘要
-- 支持 JSON trace 导出
 - 为 HTML 报告增加过滤和对比能力
 
 ## 后续：示例与发布

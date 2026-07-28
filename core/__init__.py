@@ -26,6 +26,13 @@ from .debate import (
     DebateTurn,
     create_debate,
 )
+from .events import (
+    EventCollector,
+    EventSink,
+    RunContext,
+    RunEvent,
+    RunEventEmitter,
+)
 from .llm import (
     LLM,
     ChatModel,
@@ -60,6 +67,12 @@ from .tools import (
     ToolExecutionResult,
     ToolRegistry,
     tool,
+)
+from .trace_json import (
+    TraceDocument,
+    export_trace_json,
+    trace_from_json,
+    trace_to_json,
 )
 
 # isort: split
@@ -113,6 +126,12 @@ __all__ = [
     "DebateStreamEvent",
     "DebateTurn",
     "create_debate",
+    # 事件
+    "RunContext",
+    "RunEvent",
+    "EventSink",
+    "EventCollector",
+    "RunEventEmitter",
     # 上下文
     "TokenCounter",
     "ApproximateTokenCounter",
@@ -136,6 +155,11 @@ __all__ = [
     "ChromaMemoryStore",
     "create_memory_record",
     "build_memory_context",
+    # JSON trace
+    "TraceDocument",
+    "trace_to_json",
+    "trace_from_json",
+    "export_trace_json",
     # 兼容导出
     "SlidingWindowMemory",
     "LongTermMemory",

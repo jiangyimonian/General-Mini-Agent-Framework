@@ -85,8 +85,6 @@ def _encode_event(event: RunEvent) -> dict[str, Any]:
 
 def _decode_document(data: dict[str, Any]) -> TraceDocument:
     """从 JSON 兼容字典解码 TraceDocument。"""
-    from datetime import datetime, timezone
-
     schema_version = data.get("schema_version")
     if schema_version != 1:
         raise ValueError(f"unsupported schema_version: {schema_version}")
@@ -104,7 +102,8 @@ def _decode_document(data: dict[str, Any]) -> TraceDocument:
     # 验证事件序号
     for i, event in enumerate(events):
         if event.sequence != i + 1:
-            raise ValueError(f"event sequence must start at 1 and be strictly increasing, got {event.sequence} at index {i}")
+            msg = "event sequence must start at 1 and be strictly increasing"
+            raise ValueError(f"{msg}, got {event.sequence} at index {i}")
 
     return TraceDocument(
         schema_version=schema_version,
@@ -115,7 +114,7 @@ def _decode_document(data: dict[str, Any]) -> TraceDocument:
 
 def _decode_event(data: dict[str, Any]) -> RunEvent:
     """从 JSON 兼容字典解码 RunEvent。"""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     run_id = data.get("run_id")
     if not isinstance(run_id, str):

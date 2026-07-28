@@ -1,13 +1,13 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.6.0`
-在 `0.5.0` 的结构化工具结果和工具授权之上，增加异步模型与 Agent API、
-工具 timeout 和协作式取消语义。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.7.0`
+在 `0.6.0` 的异步模型与 Agent API 之上，增加统一运行标识、事件 envelope 和
+版本化 JSON trace。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.6.0 稳定能力
+## 0.7.0 稳定能力
 
 ### 同步 API（继承自 0.5.0）
 
@@ -52,6 +52,19 @@ General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核�
 **不会强制终止后台线程**。同步工具可能继续执行并产生副作用。需要响应取消的工具
 应实现为 `async def` 并使用 `asyncio.sleep()` 或其他可取消的等待操作。
 
+### 可观测运行（0.7.0 新增）
+
+- `RunContext` 运行上下文，持有唯一 `run_id` 和父运行关系
+- `RunEvent` 统一事件 envelope，包含序号、时间戳和耗时
+- `EventCollector` 内存事件收集器，支持不可变快照
+- `RunEventEmitter` 事件发射器，支持父子运行关系
+- `TraceDocument` 版本化 trace 文档，`schema_version` 固定为 1
+- `trace_to_json()` / `trace_from_json()` JSON 编解码，确定性导出
+- `export_trace_json()` 导出到文件，UTF-8 编码
+- sink 异常原样传播，不转换为模型错误
+- 现有 `StreamEvent` 和 `DebateStreamEvent` 保持兼容
+- 模型错误自动脱敏，不包含 Authorization header 或 API Key
+
 ## 实验性模块
 
 HTML 轨迹导出仍为实验性能力。它保留在仓库中用于后续稳定化，不保证接口或行为兼容性。
@@ -67,6 +80,8 @@ core/
 ├── memory.py         # 内存会话与旧长期记忆兼容接口
 ├── long_term_memory.py # 稳定的显式长期记忆
 ├── debate.py         # 稳定的多 Agent 协作
+├── events.py         # 运行上下文与事件 envelope
+├── trace_json.py     # 版本化 JSON trace 导出
 └── trace.py          # 实验性 HTML 轨迹渲染
 demo/
 ├── reasoning.py      # 同步示例

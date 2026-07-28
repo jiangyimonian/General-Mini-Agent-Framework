@@ -308,9 +308,8 @@ class TestTraceDocument:
 
     def test_json_export_sanitizes_model_error(self) -> None:
         """模型错误导出不包含敏感信息。"""
-        from core.trace_json import TraceDocument, trace_to_json
-
         from core.llm import ModelRequestError
+        from core.trace_json import TraceDocument, trace_to_json
 
         # 创建包含敏感信息的模型错误
         error = ModelRequestError(

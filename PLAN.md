@@ -2,9 +2,8 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.5.0`
-在稳定的单 Agent 执行、显式上下文和长期记忆之上，增加结构化工具结果和实例级、
-fail-closed 的工具授权策略。
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.7.0`
+在稳定的同步、流式和异步执行之上，增加统一运行标识、事件 envelope 和版本化 JSON trace。
 
 ## 设计原则
 
@@ -15,7 +14,36 @@ fail-closed 的工具授权策略。
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.5.0 稳定边界
+## 0.7.0 稳定边界
+
+`0.7.0` 包含并保持 `0.6.0` 的全部同步、流式和异步契约。
+
+### `core/events.py`
+
+负责运行上下文与事件 envelope：
+
+- `RunContext` 持有唯一 `run_id` 和父运行关系
+- `RunEvent` 统一事件 envelope，包含序号、时间戳和耗时
+- `EventSink` 协议定义事件 sink 接口
+- `EventCollector` 内存收集器，线程安全，支持不可变快照
+- `RunEventEmitter` 事件发射器，管理序号和时钟，支持父子关系
+
+事件层不拥有业务状态，只在状态变化边界发出事件。序号从 1 严格递增，耗时来自
+monotonic clock。sink 异常原样传播，不转换为模型错误。
+
+### `core/trace_json.py`
+
+负责版本化 JSON trace 导出和导入：
+
+- `TraceDocument` 版本化 trace 文档，`schema_version` 固定为 1
+- `trace_to_json()` 导出为 JSON 字符串，确定性序列化
+- `trace_from_json()` 从 JSON 字符串导入，严格校验
+- `export_trace_json()` 导出到文件，UTF-8 编码
+
+JSON 使用 `ensure_ascii=False`、`sort_keys=True`、`allow_nan=False`。导入只接受
+`schema_version == 1`，拒绝非法结构。模型错误已脱敏，不包含认证头或 API Key。
+
+### 继承自 0.6.0 的模块
 
 `0.5.0` 包含并保持 `0.4.1` 的全部模型、工具、Agent、上下文和记忆契约。
 
@@ -131,7 +159,7 @@ fail-closed 的工具授权策略。
 
 ## 公共接口
 
-`core/__init__.py` 中的 `0.5.0` 稳定导出为：
+`core/__init__.py` 中的 `0.7.0` 稳定导出为：
 
 - `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -145,6 +173,8 @@ fail-closed 的工具授权策略。
 - `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
 - `Debate`、`DebateConfig`、`DebateRole`、`DebateRound`、`DebateTurn`、`DebateResult`
 - `DebateStopReason`、`DebateStreamEvent`、`ConvergenceCheck`、`create_debate`
+- `RunContext`、`RunEvent`、`EventSink`、`EventCollector`、`RunEventEmitter`
+- `TraceDocument`、`trace_to_json`、`trace_from_json`、`export_trace_json`
 
 `SlidingWindowMemory` 和 `LongTermMemory` 仅为兼容现有调用而继续导出，不构成稳定 API。
 

@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0] - 2026-07-28
+
+### 新增
+
+- 运行上下文：`RunContext` 持有唯一 `run_id` 和父运行关系
+- 事件 envelope：`RunEvent` 包含序号、时间戳、耗时和 payload
+- 事件收集器：`EventCollector` 内存收集器，线程安全，支持不可变快照
+- 事件发射器：`RunEventEmitter` 管理序号和时钟，支持父子关系
+- 版本化 JSON trace：`TraceDocument`、`trace_to_json()`、`trace_from_json()`、`export_trace_json()`
+- Agent 和 Debate 发射 `run_started` / `run_finished` 事件
+- Debate 参与者和 Judge 拥有独立子 run ID，正确指向父 run ID
+- 模型错误自动脱敏，不包含 Authorization header 或 API Key
+- `AgentResult` 和 `DebateResult` 新增 `run_id` 字段
+
+### 变更
+
+- 版本号更新为 0.7.0
+- PLAN.md 新增 events.py 和 trace_json.py 模块说明
+- ROADMAP.md 移除已稳定的可观测性条目
+
 ## [0.6.0] - 2026-07-28
 
 ### 新增

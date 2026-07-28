@@ -72,6 +72,268 @@ def export_trace_html(
     path.write_text(html, encoding="utf-8")
 
 
+def compare_traces_to_html(
+    baseline: TraceDocument,
+    candidate: TraceDocument,
+    *,
+    title: str = "Trace Comparison",
+) -> str:
+    """将两个 TraceDocument 对比渲染为 HTML 页面。
+
+    Args:
+        baseline: 基准 TraceDocument
+        candidate: 候选 TraceDocument
+        title: 页面标题
+
+    Returns:
+        自包含的 HTML 字符串
+
+    Raises:
+        ValueError: schema version 不一致
+    """
+    if baseline.schema_version != 1 or candidate.schema_version != 1:
+        raise ValueError("both documents must have schema_version=1")
+
+    # 提取摘要
+    baseline_summary = _extract_summary(baseline)
+    candidate_summary = _extract_summary(candidate)
+
+    # 计算差值
+    diff = _compute_diff(baseline_summary, candidate_summary)
+
+    baseline_json = _safe_json_script(baseline_summary)
+    candidate_json = _safe_json_script(candidate_summary)
+    diff_json = _safe_json_script(diff)
+
+    return _COMPARE_HTML_TEMPLATE.format(
+        title=title,
+        baseline_run_id=baseline.root_run_id,
+        candidate_run_id=candidate.root_run_id,
+        baseline_data=baseline_json,
+        candidate_data=candidate_json,
+        diff_data=diff_json,
+    )
+
+
+def _extract_summary(doc: TraceDocument) -> dict[str, Any]:
+    """从 TraceDocument 提取摘要。"""
+    total_tokens = 0
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_elapsed = 0.0
+    error_count = 0
+    stop_reason = ""
+    event_count = len(doc.events)
+
+    for event in doc.events:
+        if event.elapsed_ms > total_elapsed:
+            total_elapsed = event.elapsed_ms
+        if event.type == "run_finished":
+            payload = event.payload
+            stop_reason = payload.get("stop_reason", "")
+            if "error" in payload or stop_reason in ("error", "model_error"):
+                error_count += 1
+            usage = payload.get("usage", {})
+            total_tokens += usage.get("total_tokens", 0)
+            prompt_tokens += usage.get("prompt_tokens", 0)
+            completion_tokens += usage.get("completion_tokens", 0)
+
+    return {
+        "run_id": doc.root_run_id,
+        "event_count": event_count,
+        "total_elapsed_ms": total_elapsed,
+        "total_tokens": total_tokens,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "error_count": error_count,
+        "stop_reason": stop_reason,
+    }
+
+
+def _compute_diff(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    """计算两个摘要的差值。"""
+    def diff_val(key: str) -> Any:
+        b = baseline.get(key)
+        c = candidate.get(key)
+        if b is None or c is None:
+            return "N/A"
+        if isinstance(b, (int, float)) and isinstance(c, (int, float)):
+            return c - b
+        return "N/A"
+
+    return {
+        "total_elapsed_ms": diff_val("total_elapsed_ms"),
+        "total_tokens": diff_val("total_tokens"),
+        "prompt_tokens": diff_val("prompt_tokens"),
+        "completion_tokens": diff_val("completion_tokens"),
+        "error_count": diff_val("error_count"),
+    }
+
+
+_COMPARE_HTML_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<style>
+:root {{
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --border: #2a2d3e;
+    --text: #e1e1e1;
+    --dim: #6b7280;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}}
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+body {{
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 1000px;
+    margin: 0 auto;
+}}
+.header {{
+    text-align: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}}
+.header h1 {{ font-size: 1.5rem; color: var(--accent); }}
+
+.compare-grid {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    overflow-x: auto;
+}}
+@media (max-width: 600px) {{
+    .compare-grid {{ grid-template-columns: 1fr; }}
+}}
+.run-card {{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+}}
+.run-card h2 {{
+    font-size: .9rem;
+    color: var(--accent);
+    margin-bottom: 1rem;
+    font-family: var(--mono);
+}}
+.stat-grid {{
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: .75rem;
+}}
+.stat {{
+    background: rgba(0,0,0,.2);
+    border-radius: 8px;
+    padding: .75rem;
+    text-align: center;
+}}
+.stat-value {{ font-size: 1.1rem; font-weight: 700; color: var(--accent); }}
+.stat-value.positive {{ color: var(--green); }}
+.stat-value.negative {{ color: var(--red); }}
+.stat-value.na {{ color: var(--dim); }}
+.stat-label {{ font-size: .65rem; text-transform: uppercase; color: var(--dim); margin-top: .25rem; }}
+
+.diff-card {{
+    background: linear-gradient(135deg, #1e1b4b 0%, #1a1d2e 100%);
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-top: 1.5rem;
+}}
+.diff-card h2 {{ font-size: 1rem; color: var(--accent); margin-bottom: 1rem; }}
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>📊 Trace Comparison</h1>
+</div>
+
+<div class="compare-grid">
+    <div class="run-card">
+        <h2>Baseline: <span id="baseline-id"></span></h2>
+        <div id="baseline-stats" class="stat-grid"></div>
+    </div>
+    <div class="run-card">
+        <h2>Candidate: <span id="candidate-id"></span></h2>
+        <div id="candidate-stats" class="stat-grid"></div>
+    </div>
+</div>
+
+<div class="diff-card">
+    <h2>Difference (Candidate - Baseline)</h2>
+    <div id="diff-stats" class="stat-grid"></div>
+</div>
+
+<script>
+const BASELINE = {baseline_data};
+const CANDIDATE = {candidate_data};
+const DIFF = {diff_data};
+
+document.getElementById('baseline-id').textContent = BASELINE.run_id;
+document.getElementById('candidate-id').textContent = CANDIDATE.run_id;
+
+function renderStats(containerId, data, isDiff) {{
+    const container = document.getElementById(containerId);
+    const fields = [
+        {{ key: 'event_count', label: 'Events' }},
+        {{ key: 'total_elapsed_ms', label: 'Elapsed (ms)' }},
+        {{ key: 'total_tokens', label: 'Total Tokens' }},
+        {{ key: 'prompt_tokens', label: 'Prompt Tokens' }},
+        {{ key: 'completion_tokens', label: 'Completion' }},
+        {{ key: 'error_count', label: 'Errors' }},
+        {{ key: 'stop_reason', label: 'Stop Reason' }},
+    ];
+
+    fields.forEach(f => {{
+        const val = data[f.key];
+        const div = document.createElement('div');
+        div.className = 'stat';
+
+        let display = val;
+        let cls = '';
+        if (val === 'N/A' || val === null || val === undefined) {{
+            display = 'N/A';
+            cls = 'na';
+        }} else if (isDiff && typeof val === 'number') {{
+            if (val > 0) {{
+                display = '+' + val;
+                cls = 'positive';
+            }} else if (val < 0) {{
+                cls = 'negative';
+            }}
+        }}
+
+        div.innerHTML = `
+            <div class="stat-value ${{cls}}">${{display}}</div>
+            <div class="stat-label">${{f.label}}</div>
+        `;
+        container.appendChild(div);
+    }});
+}}
+
+renderStats('baseline-stats', BASELINE, false);
+renderStats('candidate-stats', CANDIDATE, false);
+renderStats('diff-stats', DIFF, true);
+</script>
+</body>
+</html>
+"""
+
+
 def _safe_json_script(data: Any) -> str:
     """生成安全的 JSON 数据，可嵌入 <script> 标签。
 

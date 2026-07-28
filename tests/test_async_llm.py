@@ -298,6 +298,91 @@ class TestAsyncLLMRetry:
 
         asyncio.run(run())
 
+    def test_chat_stream_async_retries_before_first_chunk(self) -> None:
+        """异步流式请求在产生首块前重试。"""
+        from core.async_llm import AsyncLLM
+
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return httpx.Response(503, request=request)
+            return httpx.Response(
+                200,
+                content=b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n',
+                request=request,
+            )
+
+        llm = AsyncLLM(
+            LLMConfig(api_key="test-key", base_url="https://example.test/v1", max_retries=2)
+        )
+        llm._client = httpx.AsyncClient(
+            base_url=llm.config.base_url,
+            transport=httpx.MockTransport(handler),
+        )
+
+        async def run():
+            async with llm:
+                chunks = []
+                async for chunk in llm.chat_stream_async([]):
+                    chunks.append(chunk)
+                assert len(chunks) == 1
+                assert chunks[0].content == "ok"
+                assert calls == 2
+
+        asyncio.run(run())
+
+
+class FailingAfterFirstChunkStream(httpx.AsyncByteStream):
+    """在产生首块后失败的异步流。"""
+
+    async def __aiter__(self):
+        yield b'data: {"choices":[{"delta":{"content":"first"},"finish_reason":null}]}\n\n'
+        raise httpx.ReadError("transport error")
+
+
+class TestAsyncLLMStreamRetry:
+    """测试异步流式响应重试边界。"""
+
+    def test_chat_stream_async_does_not_retry_after_yielding_output(self) -> None:
+        """异步流式请求产生首块后不重试。"""
+        from core.async_llm import AsyncLLM
+
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            return httpx.Response(200, stream=FailingAfterFirstChunkStream(), request=request)
+
+        llm = AsyncLLM(
+            LLMConfig(api_key="test-key", base_url="https://example.test/v1", max_retries=3)
+        )
+        llm._client = httpx.AsyncClient(
+            base_url=llm.config.base_url,
+            transport=httpx.MockTransport(handler),
+        )
+
+        async def run():
+            async with llm:
+                chunks = []
+                async for chunk in llm.chat_stream_async([]):
+                    chunks.append(chunk)
+                    assert chunk.content == "first"
+                # 不应该到达这里，应该在迭代时抛出错误
+            assert False, "expected ModelRequestError"
+
+        async def run_and_catch():
+            async with llm:
+                with pytest.raises(ModelRequestError, match="streaming request failed"):
+                    async for _ in llm.chat_stream_async([]):
+                        pass
+                assert calls == 1
+
+        asyncio.run(run_and_catch())
+
 
 class TestAsyncLLMCancellation:
     """测试异步取消传播。"""

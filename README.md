@@ -1,13 +1,13 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.3.1`
-在稳定的单 Agent 同步与流式执行、上下文预算和会话记忆之上，增加显式、隔离且可替换的
-长期记忆。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.5.0`
+在稳定的单 Agent 执行、上下文与显式长期记忆之上，增加结构化工具结果、实例级
+工具授权策略和 fail-closed 授权语义。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.3.1 稳定能力
+## 0.5.0 稳定能力
 
 - OpenAI 兼容 Chat Completions 客户端
 - Python 函数到 JSON Schema 的工具定义
@@ -26,11 +26,15 @@ General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核�
 - 按用户、会话和 Agent 隔离的长期记忆契约
 - 确定性的内存存储和可选的 ChromaDB 持久化适配器
 - `Agent.run()` 与 `Agent.run_stream()` 的显式检索和 `memory_error` 终态
+- 有序多 Agent 参与者轮次和独立 Judge 最终裁决
+- 真正生效的 `max_rounds` 与显式收敛回调
+- `Debate.run()` 与 `Debate.run_stream()` 的运行隔离和确定性失败边界
+- 结构化工具结果：合法 JSON 值保留在 `value`，确定性紧凑序列化为 `content`
+- 实例级工具授权策略：fail-closed，拒绝或异常时不调用工具函数
 
 ## 实验性模块
 
-多 Agent 和 HTML 轨迹导出仍为实验性能力。它们保留在仓库中用于后续
-稳定化，不保证接口或行为兼容性。
+HTML 轨迹导出仍为实验性能力。它保留在仓库中用于后续稳定化，不保证接口或行为兼容性。
 
 ## 项目结构
 
@@ -42,7 +46,7 @@ core/
 ├── tools.py          # 工具注册、Schema 和执行
 ├── memory.py         # 内存会话与旧长期记忆兼容接口
 ├── long_term_memory.py # 稳定的显式长期记忆
-├── debate.py         # 实验性多 Agent 协作
+├── debate.py         # 稳定的多 Agent 协作
 └── trace.py          # 实验性 HTML 轨迹渲染
 demo/
 ├── reasoning.py      # 同步示例
@@ -133,23 +137,27 @@ python demo/reasoning.py
 python demo/reasoning_stream.py
 python demo/chat.py
 python demo/long_term_memory.py
+python demo/debate_demo.py
 ```
 
 该示例需要 `.env` 中存在有效模型密钥，不属于默认离线测试。
 
 ## 稳定 API
 
-`0.3.1` 的稳定公共入口由 `core` 包导出：
+`0.5.0` 的稳定公共入口由 `core` 包导出：
 
 - 模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
-- 工具：`tool`、`Tool`、`ToolRegistry`
+- 工具：`tool`、`Tool`、`ToolRegistry`、`ToolExecutionResult`、`JSONValue`、
+  `ToolAuthorizationRequest`、`ToolAuthorizationDecision`、`ToolAuthorizationPolicy`
 - Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
 - 上下文：`TokenCounter`、`ApproximateTokenCounter`、`ContextPolicy`、
   `TokenBudgetContext`、`SummarizingContext`、`ContextBudgetExceeded`
 - 会话：`ConversationMemory`、`InMemoryConversation`
 - 长期记忆：`MemoryNamespace`、`MemoryRecord`、`MemoryQuery`、`LongTermMemoryStore`、
   `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
+- 多 Agent：`Debate`、`DebateConfig`、`DebateRole`、`DebateRound`、`DebateTurn`、
+  `DebateResult`、`DebateStopReason`、`DebateStreamEvent`、`create_debate`
 
 `StreamEvent` 包含 `iteration_start`、`thought_chunk`、`tool_call`、`observation`、
 `final_answer`、`model_error` 和 `done` 七种事件。`done.stop_reason` 为 `completed`、
@@ -208,15 +216,87 @@ result = agent.run(
 模型前以 `context_budget_exceeded` 停止。`ChromaMemoryStore` 负责 Embedding 和索引，
 ChromaDB 仍是首次操作时才加载的可选依赖。
 
-`0.3.1` 不包含自动记忆选择、自动写入、异步存储、复杂元数据表达式、重排序或分数归一化。
+长期记忆不包含自动记忆选择、自动写入、异步存储、复杂元数据表达式、重排序或分数归一化。
 
 `SlidingWindowMemory` 和 `LongTermMemory` 仅保留兼容导出，不属于稳定 API。
-`core.debate` 与 `core.trace` 同样属于实验性模块。`SummarizingContext` 必须由调用方
+`core.trace` 仍属于实验性模块。`SummarizingContext` 必须由调用方
 显式提供摘要函数，不会在后台复用主模型；摘要失败时回退到确定性裁剪。
 
-## 实验性示例
+### 结构化工具结果
 
-以下入口可以用于试验现有实现，但其接口和行为可能在后续版本调整：
+工具函数返回字符串时，`content` 保持原样传递给模型。返回合法 JSON 值（`dict`、`list`、
+`int`、`float`、`bool`、`None`）时，`ToolExecutionResult.value` 保留原始值，`content`
+使用确定性紧凑 JSON 序列化：
+
+```python
+from core import ToolExecutionResult, tool
+
+@tool
+def fetch() -> dict:
+    return {"items": [1, True, None], "status": "ok"}
+
+# 执行后 result.content == '{"items":[1,true,null],"status":"ok"}'
+# result.value == {"items": [1, True, None], "status": "ok"}
+```
+
+序列化使用 `json.dumps(value, ensure_ascii=False, sort_keys=True, allow_nan=False, separators=(",", ":"))`。
+非字符串键、`NaN`、`Infinity` 和不可序列化对象返回 `serialization_failed` 错误码，
+不会退回 `repr()` 或暴露内存地址。
+
+### 工具授权
+
+`ToolAuthorizationPolicy` 协议在参数绑定成功后、工具函数执行前完成授权检查。
+策略拒绝返回 `permission_denied`，策略异常返回 `authorization_error`，两者均为
+fail-closed：工具函数不会被调用。
+
+```python
+from core import Agent, ToolAuthorizationDecision, ToolAuthorizationRequest
+
+class AllowSafeOnly:
+    def authorize(self, request: ToolAuthorizationRequest):
+        if request.name == "safe_query":
+            return ToolAuthorizationDecision(allowed=True)
+        return ToolAuthorizationDecision(allowed=False, reason="unsafe")
+
+agent = Agent(
+    llm=model,
+    tools=[safe_query, dangerous_action],
+    tool_authorization_policy=AllowSafeOnly(),
+)
+```
+
+授权策略属于 Agent 实例，不使用进程级全局注册表。未知工具和无效参数不会触发授权检查。
+
+### 多 Agent 协作
+
+`Debate` 接收有序参与者列表，并将 Judge 单独配置。参与者完成一轮后才检查调用方提供的
+收敛回调；收敛或达到 `max_rounds` 后，Judge 只执行一次。每次调用都创建独立上下文，
+重复使用同一个 `Debate` 实例不会混入上一次运行。
+
+```python
+from core import Debate, DebateConfig, DebateRole
+
+debate = Debate(
+    participants=[
+        DebateRole("Solver", solver_agent, "提出解决方案。\n{role_context}"),
+        DebateRole("Critic", critic_agent, "审查已有方案。\n{role_context}"),
+    ],
+    judge=DebateRole("Judge", judge_agent, "给出最终裁决。\n{role_context}"),
+    config=DebateConfig(max_rounds=2),
+)
+result = debate.run("比较两个实现方案")
+print(result.verdict)
+```
+
+参与者失败、Judge 失败和缺少 Judge 分别返回 `participant_error`、`judge_error` 和
+`no_judge`。`Debate.run_stream()` 使用 Debate 级轮次、发言者、Agent 包装事件和单一
+`debate_done` 终态，执行顺序与同步路径一致。
+
+`0.5.0` 不包含并行参与者、投票、动态角色、异步 API 或通用工作流图。
+
+## 多 Agent 与轨迹示例
+
+多 Agent Demo 使用稳定接口；HTML 导出仍是实验性展示：
 
 ```bash
 python demo/debate_demo.py
@@ -236,5 +316,5 @@ ruff check core tests demo
 
 ## 开发文档
 
-- [PLAN.md](PLAN.md)：`0.3.1` 架构和稳定边界
+- [PLAN.md](PLAN.md)：`0.4.1` 架构和稳定边界
 - [ROADMAP.md](ROADMAP.md)：后续版本路线

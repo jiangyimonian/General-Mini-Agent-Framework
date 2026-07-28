@@ -16,6 +16,7 @@ Trace → HTML 渲染器 — 将 Agent 推理轨迹导出为可交互的 HTML �
 from __future__ import annotations
 
 import json
+from dataclasses import asdict, is_dataclass
 from typing import Any
 
 
@@ -347,15 +348,19 @@ def debate_to_html(
         title: 页面标题
     """
     rounds = getattr(debate_result, "rounds", [])
+    judge_turn = getattr(debate_result, "judge_turn", None)
     verdict = getattr(debate_result, "verdict", "")
     total_usage = getattr(debate_result, "total_usage", {})
+    rounds_data = [asdict(round_) if is_dataclass(round_) else round_ for round_ in rounds]
+    judge_data = asdict(judge_turn) if is_dataclass(judge_turn) else judge_turn
 
     return DEBATE_HTML_TEMPLATE.format(
         title=title,
         question=json.dumps(question, ensure_ascii=False),
         verdict=json.dumps(verdict, ensure_ascii=False),
         usage_json=json.dumps(total_usage, ensure_ascii=False),
-        rounds_data=json.dumps(rounds, ensure_ascii=False, default=str),
+        rounds_data=json.dumps(rounds_data, ensure_ascii=False),
+        judge_data=json.dumps(judge_data, ensure_ascii=False),
     )
 
 
@@ -500,6 +505,7 @@ body {{
 </div>
 <script>
 const ROUNDS = {rounds_data};
+const JUDGE = {judge_data};
 const QUESTION = {question};
 const VERDICT = {verdict};
 const USAGE = {usage_json};
@@ -518,11 +524,11 @@ for (const round of ROUNDS) {{
     const div = document.createElement('div');
     div.className = 'round';
     div.innerHTML = (
-        `<div class="round-title">第 ${{round.round + 1}} 轮</div>` +
+        `<div class="round-title">第 ${{round.number}} 轮</div>` +
         '<div class="role-cards"></div>'
     );
     const cards = div.querySelector('.role-cards');
-    for (const resp of (round.responses || [])) {{
+    for (const resp of (round.turns || [])) {{
         const card = document.createElement('div');
         card.className = `role-card ${{resp.role}}`;
         card.innerHTML = (

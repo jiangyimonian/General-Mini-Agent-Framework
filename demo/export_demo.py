@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 from core.agent import Agent  # noqa: E402
-from core.debate import Debate  # noqa: E402
+from core.debate import create_debate  # noqa: E402
 from core.llm import LLM, LLMConfig  # noqa: E402
 from core.tools import tool  # noqa: E402
 from core.trace import export_debate, export_trace  # noqa: E402
@@ -74,7 +74,7 @@ def run_debate_export():
     critic = Agent(llm=make_llm(), tools=[calculate, search_knowledge], max_iterations=4)
     judge  = Agent(llm=make_llm(), tools=[calculate, search_knowledge], max_iterations=4)
 
-    debate = Debate(solver=solver, critic=critic, judge=judge)
+    debate = create_debate(solver, critic, judge)
     question = "地球绕太阳公转的线速度是多少？提示：轨道近似圆形"
     print(f"⚔️ 运行 Debate: {question}")
     result = debate.run(question)

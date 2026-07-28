@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
 from collections.abc import Callable, Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from types import UnionType
-from typing import Any, Union, get_args, get_origin
+from typing import Any, Protocol, Union, get_args, get_origin
 
 TYPE_MAP = {
     int: "integer",
@@ -19,11 +20,82 @@ TYPE_MAP = {
     dict: "object",
 }
 
+type JSONValue = str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
+
 
 @dataclass(frozen=True)
 class ToolExecutionResult:
     content: str
+    value: JSONValue | None = None
     error_code: str | None = None
+
+
+@dataclass(frozen=True)
+class ToolAuthorizationRequest:
+    name: str
+    arguments: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ToolAuthorizationDecision:
+    allowed: bool
+    reason: str | None = None
+
+
+class ToolAuthorizationPolicy(Protocol):
+    def authorize(
+        self,
+        request: ToolAuthorizationRequest,
+    ) -> ToolAuthorizationDecision: ...
+
+
+def _is_json_value(value: Any) -> bool:
+    """Recursively validate that value conforms to JSONValue."""
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        try:
+            json.dumps(value, allow_nan=False)
+            return True
+        except ValueError:
+            return False
+    if isinstance(value, str):
+        return True
+    if isinstance(value, list):
+        return all(_is_json_value(item) for item in value)
+    if isinstance(value, dict):
+        return all(
+            isinstance(key, str) and _is_json_value(val)
+            for key, val in value.items()
+        )
+    return False
+
+
+def _serialize_result(value: Any) -> ToolExecutionResult:
+    """Serialize tool result with deterministic JSON or fail closed."""
+    if isinstance(value, str):
+        return ToolExecutionResult(content=value, value=None)
+    if _is_json_value(value):
+        try:
+            content = json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+            return ToolExecutionResult(content=content, value=value)
+        except (TypeError, ValueError):
+            pass
+    return ToolExecutionResult(
+        content="tool result is not valid JSON",
+        value=None,
+        error_code="serialization_failed",
+    )
 
 
 class Tool:
@@ -159,9 +231,13 @@ class ToolRegistry:
     """A private registry owned by one Agent or caller."""
 
     def __init__(
-        self, tools: Iterable[Tool | Callable[..., Any]] = ()
+        self,
+        tools: Iterable[Tool | Callable[..., Any]] = (),
+        *,
+        authorization_policy: ToolAuthorizationPolicy | None = None,
     ) -> None:
         self._tools: dict[str, Tool] = {}
+        self._policy = authorization_policy
         for value in tools:
             self.register(value)
 
@@ -206,6 +282,24 @@ class ToolRegistry:
                 error_code="invalid_arguments",
             )
 
+        if self._policy is not None:
+            request = ToolAuthorizationRequest(
+                name=name,
+                arguments=dict(arguments),
+            )
+            try:
+                decision = self._policy.authorize(request)
+            except Exception:
+                return ToolExecutionResult(
+                    content="authorization error",
+                    error_code="authorization_error",
+                )
+            if not decision.allowed:
+                return ToolExecutionResult(
+                    content="permission denied",
+                    error_code="permission_denied",
+                )
+
         try:
             result = registered.func(**arguments)
         except Exception as exc:
@@ -213,7 +307,7 @@ class ToolRegistry:
                 content=f"tool execution failed: {type(exc).__name__}: {exc}",
                 error_code="execution_failed",
             )
-        return ToolExecutionResult(content=str(result))
+        return _serialize_result(result)
 
 
 def tool(

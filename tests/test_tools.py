@@ -1,5 +1,7 @@
 """Tests for local tool registration, schemas, and execution."""
 
+from typing import Any
+
 import pytest
 
 from core.tools import ToolRegistry, tool
@@ -192,6 +194,136 @@ class TestToolRegistration:
         assert [item.name for item in first_registry.list()] == ["first"]
         assert [item.name for item in second_registry.list()] == ["second"]
         assert first_registry.schemas()[0]["function"]["name"] == "first"
+
+
+class TestStructuredToolResult:
+    """Tests for JSON-preserving tool results and serialization failures."""
+
+    def test_dict_result_preserves_value_and_deterministic_json(self) -> None:
+        def fetch() -> dict[str, Any]:
+            return {"items": [1, True, None], "status": "ok"}
+
+        result = ToolRegistry([fetch]).execute("fetch", {})
+
+        assert result.error_code is None
+        assert result.content == '{"items":[1,true,null],"status":"ok"}'
+        assert result.value == {"items": [1, True, None], "status": "ok"}
+
+    def test_string_result_remains_unmodified(self) -> None:
+        def greet() -> str:
+            return "hello world"
+
+        result = ToolRegistry([greet]).execute("greet", {})
+
+        assert result.error_code is None
+        assert result.content == "hello world"
+        assert result.value is None
+
+    @pytest.mark.parametrize(
+        "invalid_value",
+        [
+            object(),
+            float("nan"),
+            {1: "value"},
+        ],
+        ids=["object", "nan", "non_string_key"],
+    )
+    def test_non_json_result_returns_serialization_failed(
+        self, invalid_value: Any
+    ) -> None:
+        def broken() -> Any:
+            return invalid_value
+
+        result = ToolRegistry([broken]).execute("broken", {})
+
+        assert result.error_code == "serialization_failed"
+        assert result.content == "tool result is not valid JSON"
+        assert result.value is None
+
+
+class TestToolAuthorization:
+    """Tests for fail-closed authorization policy enforcement."""
+
+    def test_policy_deny_prevents_tool_execution(self) -> None:
+        call_count = 0
+
+        def dangerous() -> str:
+            nonlocal call_count
+            call_count += 1
+            return "executed"
+
+        class DenyAll:
+            def authorize(self, request: Any) -> Any:
+                from core.tools import ToolAuthorizationDecision
+
+                return ToolAuthorizationDecision(allowed=False, reason="blocked")
+
+        from core.tools import ToolRegistry
+
+        registry = ToolRegistry([dangerous], authorization_policy=DenyAll())
+        result = registry.execute("dangerous", {})
+
+        assert result.error_code == "permission_denied"
+        assert "permission denied" in result.content.lower()
+        assert call_count == 0
+
+    def test_policy_exception_returns_authorization_error(self) -> None:
+        call_count = 0
+
+        def safe() -> str:
+            nonlocal call_count
+            call_count += 1
+            return "executed"
+
+        class BrokenPolicy:
+            def authorize(self, request: Any) -> Any:
+                raise RuntimeError("policy failure")
+
+        from core.tools import ToolRegistry
+
+        registry = ToolRegistry([safe], authorization_policy=BrokenPolicy())
+        result = registry.execute("safe", {})
+
+        assert result.error_code == "authorization_error"
+        assert "authorization error" in result.content.lower()
+        assert call_count == 0
+
+    def test_registries_with_different_policies_are_isolated(self) -> None:
+        allowed_calls = []
+        denied_calls = []
+
+        def operation(value: str) -> str:
+            return f"done:{value}"
+
+        class AllowPolicy:
+            def authorize(self, request: Any) -> Any:
+                from core.tools import ToolAuthorizationDecision
+
+                allowed_calls.append(request)
+                return ToolAuthorizationDecision(allowed=True)
+
+        class DenyPolicy:
+            def authorize(self, request: Any) -> Any:
+                from core.tools import ToolAuthorizationDecision
+
+                denied_calls.append(request)
+                return ToolAuthorizationDecision(allowed=False)
+
+        from core.tools import ToolRegistry
+
+        allow_registry = ToolRegistry([operation], authorization_policy=AllowPolicy())
+        deny_registry = ToolRegistry([operation], authorization_policy=DenyPolicy())
+
+        allow_result = allow_registry.execute("operation", {"value": "a"})
+        deny_result = deny_registry.execute("operation", {"value": "b"})
+
+        assert allow_result.error_code is None
+        assert allow_result.content == "done:a"
+        assert deny_result.error_code == "permission_denied"
+        assert len(allowed_calls) == 1
+        assert len(denied_calls) == 1
+        assert allowed_calls[0].name == "operation"
+        assert denied_calls[0].name == "operation"
 
 
 class TestToolDecorator:

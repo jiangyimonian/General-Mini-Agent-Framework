@@ -7,6 +7,22 @@ from .context import (
     TokenBudgetContext,
     TokenCounter,
 )
+from .debate import (
+    ConvergenceCheck,
+    Debate,
+    DebateAgentEvent,
+    DebateConfig,
+    DebateDoneEvent,
+    DebateResult,
+    DebateRole,
+    DebateRound,
+    DebateRoundStartEvent,
+    DebateSpeakerEvent,
+    DebateStopReason,
+    DebateStreamEvent,
+    DebateTurn,
+    create_debate,
+)
 from .llm import (
     LLM,
     ChatModel,
@@ -32,7 +48,16 @@ from .long_term_memory import (
     create_memory_record,
 )
 from .memory import ConversationMemory, InMemoryConversation
-from .tools import Tool, ToolRegistry, tool
+from .tools import (
+    JSONValue,
+    Tool,
+    ToolAuthorizationDecision,
+    ToolAuthorizationPolicy,
+    ToolAuthorizationRequest,
+    ToolExecutionResult,
+    ToolRegistry,
+    tool,
+)
 
 # isort: split
 # Experimental compatibility exports; not part of the stable API.
@@ -50,12 +75,31 @@ __all__ = [
     "tool",
     "Tool",
     "ToolRegistry",
+    "ToolExecutionResult",
+    "JSONValue",
+    "ToolAuthorizationRequest",
+    "ToolAuthorizationDecision",
+    "ToolAuthorizationPolicy",
     "Agent",
     "AgentConfig",
     "AgentResult",
     "AgentStopReason",
     "StreamEvent",
     "TraceEvent",
+    "ConvergenceCheck",
+    "Debate",
+    "DebateAgentEvent",
+    "DebateConfig",
+    "DebateDoneEvent",
+    "DebateResult",
+    "DebateRole",
+    "DebateRound",
+    "DebateRoundStartEvent",
+    "DebateSpeakerEvent",
+    "DebateStopReason",
+    "DebateStreamEvent",
+    "DebateTurn",
+    "create_debate",
     "TokenCounter",
     "ApproximateTokenCounter",
     "ContextPolicy",

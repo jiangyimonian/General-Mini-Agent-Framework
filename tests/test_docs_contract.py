@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 
-def test_readme_publishes_context_and_keeps_other_modules_experimental() -> None:
+def test_readme_publishes_stable_multi_agent_scope() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "0.3.1 稳定能力" in readme
+    assert "0.5.0 稳定能力" in readme
     assert "单 Agent 同步工具调用" in readme
     assert "OpenAI 兼容" in readme
     assert "Agent.run_stream()" in readme
@@ -18,7 +18,12 @@ def test_readme_publishes_context_and_keeps_other_modules_experimental() -> None
     assert "TokenBudgetContext" in readme
     assert "InMemoryConversation" in readme
     assert "context_budget_exceeded" in readme
-    assert "多 Agent 和 HTML 轨迹导出仍为实验性" in readme
+    assert "Judge" in readme
+    assert "max_rounds" in readme
+    assert "Debate.run_stream()" in readme
+    assert "HTML 轨迹导出仍为实验性" in readme
+    assert "结构化工具结果" in readme
+    assert "工具授权" in readme
 
 
 def test_core_exports_stable_streaming_contracts() -> None:
@@ -72,10 +77,26 @@ def test_core_exports_stable_context_and_memory_contracts() -> None:
     assert create_memory_record is not None
 
 
+def test_core_exports_stable_tool_contracts() -> None:
+    from core import (
+        JSONValue,
+        ToolAuthorizationDecision,
+        ToolAuthorizationPolicy,
+        ToolAuthorizationRequest,
+        ToolExecutionResult,
+    )
+
+    assert JSONValue is not None
+    assert ToolAuthorizationDecision is not None
+    assert ToolAuthorizationPolicy is not None
+    assert ToolAuthorizationRequest is not None
+    assert ToolExecutionResult is not None
+
+
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "0.3.1"',)),
+        ("pyproject.toml", ('version = "0.5.0"',)),
         ("README.md", ("显式检索", "不会自动写入")),
         (
             "demo/long_term_memory.py",
@@ -88,3 +109,22 @@ def test_long_term_memory_release_contract(path, required_text) -> None:
 
     for text in required_text:
         assert text in content
+
+
+def test_changelog_exists_and_contains_versions() -> None:
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "## [0.4.1]" in changelog
+    assert "## [0.4.0]" in changelog
+    assert "### 新增" in changelog
+    assert "release" in changelog.lower() or "发行" in changelog
+
+
+def test_releasing_manual_exists_and_contains_key_steps() -> None:
+    releasing = Path("docs/RELEASING.md").read_text(encoding="utf-8")
+
+    assert "python -m pytest tests -v" in releasing
+    assert "python -m build" in releasing
+    assert "twine check" in releasing
+    assert "git tag" in releasing
+    assert "CI 失败" in releasing or "CI失败" in releasing

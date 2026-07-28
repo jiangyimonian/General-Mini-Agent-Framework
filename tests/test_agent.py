@@ -1107,3 +1107,71 @@ def test_memory_write_failure_is_not_reported_as_model_error() -> None:
 
     with pytest.raises(RuntimeError, match="memory write failed"):
         Agent(llm=model, tools=[], memory=FailingMemory()).run("question")
+
+
+class TestAgentToolAuthorization:
+    """Tests for authorization policy integration in Agent."""
+
+    def test_sync_agent_recovers_from_permission_denied(self) -> None:
+        """Agent receives permission_denied observation and continues."""
+        calls = []
+
+        @tool
+        def restricted(value: str) -> str:
+            calls.append(value)
+            return f"executed:{value}"
+
+        class DenyPolicy:
+            def authorize(self, request: Any) -> Any:
+                from core.tools import ToolAuthorizationDecision
+
+                return ToolAuthorizationDecision(allowed=False, reason="blocked")
+
+        model = ScriptedChatModel([
+            LLMResponse(
+                content="try tool",
+                tool_calls=[ToolCall("c1", "restricted", {"value": "test"})],
+            ),
+            LLMResponse(content="recovered", tool_calls=None),
+        ])
+
+        result = Agent(
+            llm=model,
+            tools=[restricted],
+            tool_authorization_policy=DenyPolicy(),
+        ).run("question")
+
+        assert result.stop_reason == "completed"
+        assert result.content == "recovered"
+        assert calls == []
+        assert result.trace[0]["error_code"] == "permission_denied"
+        tool_message = model.calls[1][0][-1]
+        assert tool_message["role"] == "tool"
+        assert "permission denied" in tool_message["content"].lower()
+
+    def test_streaming_agent_uses_deterministic_json_observation(self) -> None:
+        """Structured tool results use identical JSON across observation and trace."""
+
+        @tool
+        def fetch() -> dict[str, Any]:
+            return {"items": [1, True, None], "status": "ok"}
+
+        model = ScriptedStreamingChatModel([], [
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c1", "fetch", "{}")],
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(content="done", finish_reason="stop")],
+        ])
+
+        events = list(Agent(llm=model, tools=[fetch]).run_stream("question"))
+
+        observation = next(e for e in events if e["type"] == "observation")
+        trace_entry = events[-1]["trace"][0]
+
+        expected_json = '{"items":[1,true,null],"status":"ok"}'
+        assert observation["text"] == expected_json
+        assert trace_entry["observation"] == expected_json
+        second_request = model.stream_calls[1][0]
+        tool_message = second_request[-1]
+        assert tool_message["content"] == expected_json

@@ -43,6 +43,13 @@ from .llm import (
     StreamingChatModel,
     ToolCallDelta,
 )
+from .providers import (
+    DeepSeekAdapter,
+    ModelCapabilityError,
+    OpenAICompatibleAdapter,
+    ProviderAdapter,
+    ProviderCapabilities,
+)
 from .long_term_memory import (
     ChromaMemoryStore,
     InMemoryLongTermStore,
@@ -117,6 +124,12 @@ __all__ = [
     "StreamChunk",
     "StreamingChatModel",
     "ToolCallDelta",
+    # 提供商适配器
+    "ProviderCapabilities",
+    "ProviderAdapter",
+    "OpenAICompatibleAdapter",
+    "DeepSeekAdapter",
+    "ModelCapabilityError",
     # 工具
     "tool",
     "Tool",

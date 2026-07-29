@@ -1,13 +1,68 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.5.0`
-在稳定的单 Agent 执行、上下文与显式长期记忆之上，增加结构化工具结果、实例级
-工具授权策略和 fail-closed 授权语义。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.0.0`
+在 `0.9.0` 的模型能力适配、统一配置和安全日志之上，删除 `core` 命名空间，
+冻结公共 API。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.5.0 稳定能力
+## 1.0.0 稳定能力
+
+### 命名空间
+
+`general_mini_agent` 是唯一的稳定公共入口：
+
+```python
+from general_mini_agent import Agent, AsyncAgent, Workflow
+```
+
+### 模型能力适配器
+
+`ProviderCapabilities` 自动检测模型服务商并适配差异：
+
+- 检测 OpenAI、DeepSeek、Claude 等服务商
+- 适配工具调用的 JSON Schema 差异
+- 适配流式响应的 chunk 结构差异
+- 提供统一的工具调用和响应接口
+
+```python
+from general_mini_agent import LLM, LLMConfig
+from general_mini_agent.providers import ProviderCapabilities
+
+llm = LLM(LLMConfig(
+    api_key="<your-api-key>",
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com/v1",
+))
+# 自动检测并适配 DeepSeek 的工具调用格式
+```
+
+### 统一配置（0.9.0 新增）
+
+`FrameworkConfig` 提供统一的配置入口：
+
+```python
+from general_mini_agent.config import FrameworkConfig
+
+config = FrameworkConfig(
+    log_level="INFO",
+    enable_safe_logging=True,  # 脱敏敏感信息
+)
+```
+
+### 安全日志（0.9.0 新增）
+
+安全日志自动脱敏 API Key、Authorization header 等敏感信息：
+
+```python
+from general_mini_agent.logging import get_logger
+
+logger = get_logger(__name__)
+logger.info("API call", extra={"api_key": "sk-xxx"})  # 自动脱敏
+```
+
+### 同步 API（继承自 0.5.0）
 
 - OpenAI 兼容 Chat Completions 客户端
 - Python 函数到 JSON Schema 的工具定义
@@ -32,14 +87,100 @@ General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核�
 - 结构化工具结果：合法 JSON 值保留在 `value`，确定性紧凑序列化为 `content`
 - 实例级工具授权策略：fail-closed，拒绝或异常时不调用工具函数
 
-## 实验性模块
+### 异步 API（0.6.0 新增）
 
-HTML 轨迹导出仍为实验性能力。它保留在仓库中用于后续稳定化，不保证接口或行为兼容性。
+- `AsyncLLM` 异步模型客户端，支持 `async with` 生命周期
+- `AsyncAgent.run_async()` 异步 ReAct 循环
+- `AsyncAgent.run_stream_async()` 异步流式事件生成器
+- `AsyncToolRegistry` 异步工具执行，支持 timeout 和取消传播
+- 异步 callable 直接 await，同步 callable 通过 `asyncio.to_thread()` 执行
+- 工具 timeout 返回 `tool_timeout` observation，模型可继续推理
+- `CancelledError` 从模型、工具、Agent 原样传播
+- 取消或未完整消费的流不写入会话记忆
+- 同一 `AsyncAgent` 实例可并发运行，状态隔离
+
+### 同步工具取消限制
+
+同步 Python 函数通过 `asyncio.to_thread()` 在后台线程执行。取消只会停止等待，
+**不会强制终止后台线程**。同步工具可能继续执行并产生副作用。需要响应取消的工具
+应实现为 `async def` 并使用 `asyncio.sleep()` 或其他可取消的等待操作。
+
+### 可观测运行（0.7.0 新增）
+
+- `RunContext` 运行上下文，持有唯一 `run_id` 和父运行关系
+- `RunEvent` 统一事件 envelope，包含序号、时间戳和耗时
+- `EventCollector` 内存事件收集器，支持不可变快照
+- `RunEventEmitter` 事件发射器，支持父子运行关系
+- `TraceDocument` 版本化 trace 文档，`schema_version` 固定为 1
+- `trace_to_json()` / `trace_from_json()` JSON 编解码，确定性导出
+- `export_trace_json()` 导出到文件，UTF-8 编码
+- sink 异常原样传播，不转换为模型错误
+- 现有 `StreamEvent` 和 `DebateStreamEvent` 保持兼容
+- 模型错误自动脱敏，不包含 Authorization header 或 API Key
+
+### HTML 报告（0.7.1 新增）
+
+- `trace_to_html()` / `export_trace_html()` TraceDocument 渲染为自包含 HTML
+- `compare_traces_to_html()` 双运行对比报告
+- 事件类型、run ID、停止原因、错误过滤
+- 无外部资源，断网可用
+- XSS 安全转义
+
+### 离线 Demo
+
+```bash
+python demo/offline.py
+```
+
+输出：
+- `output/offline-agent.json` / `.html` — 单 Agent 轨迹
+- `output/offline-debate.json` / `.html` — Debate 轨迹
+
+不读取 `.env`，不访问网络。
+
+### 工作流节点（0.8.0 新增）
+
+提供可组合、可取消、可观察的串行、有限并行和条件路由节点：
+
+- `Workflow`：工作流入口，持有根节点和事件 sink
+- `SequenceNode`：串行节点，依次执行子节点，传递前一节点输出
+- `ParallelNode`：并行节点，并发执行子节点，结果按声明顺序排列
+- `ConditionalNode`：条件节点，根据 predicate 选择分支
+
+工作流示例：
+
+```bash
+python demo/workflow_demo.py
+```
+
+```python
+from general_mini_agent import Workflow, SequenceNode, ParallelNode, ConditionalNode
+
+# 并行生成两个候选
+parallel = ParallelNode(
+    [GenerateNode(), GenerateNode()],
+    max_concurrency=2,
+)
+
+# 条件选择
+conditional = ConditionalNode(
+    predicate=lambda v: len(v) > 0,
+    when_true=SelectBestNode(),
+    when_false=NoCandidateNode(),
+)
+
+# 串行组合
+workflow = Workflow(root=SequenceNode([parallel, conditional]))
+result = await workflow.run("start")
+```
+
+工作流实例不保存运行结果，重复/并发运行完全隔离。并行节点有正整数并发上限。
+不包含循环、持久化、队列或分布式执行。
 
 ## 项目结构
 
 ```text
-core/
+general_mini_agent/
 ├── agent.py          # 单 Agent 执行循环
 ├── context.py        # Token 计数和请求上下文策略
 ├── llm.py            # OpenAI 兼容模型客户端
@@ -47,12 +188,22 @@ core/
 ├── memory.py         # 内存会话与旧长期记忆兼容接口
 ├── long_term_memory.py # 稳定的显式长期记忆
 ├── debate.py         # 稳定的多 Agent 协作
-└── trace.py          # 实验性 HTML 轨迹渲染
+├── events.py         # 运行上下文与事件 envelope
+├── trace_json.py     # 版本化 JSON trace 导出
+├── trace.py          # HTML 报告渲染
+├── workflow.py       # 工作流节点
+├── workflow_adapters.py # Agent/Debate 适配器
+├── providers.py      # 模型能力适配器
+├── config.py         # 统一配置
+├── logging.py        # 安全日志
 demo/
 ├── reasoning.py      # 同步示例
 ├── reasoning_stream.py # 稳定流式示例
 ├── chat.py           # 0.3.0 上下文与会话记忆示例
 ├── long_term_memory.py # 0.3.1 持久化长期记忆示例
+├── offline.py        # 离线 Demo（无网络）
+├── workflow_demo.py  # 工作流 Demo
+├── scripted_models.py # 脚本化模型
 ├── debate_demo.py
 └── export_demo.py
 tests/                # 离线自动化测试
@@ -102,7 +253,7 @@ LLM_RESERVED_OUTPUT_TOKENS=4096
 ## 快速开始
 
 ```python
-from core import (
+from general_mini_agent import (
     Agent,
     InMemoryConversation,
     LLM,
@@ -144,13 +295,16 @@ python demo/debate_demo.py
 
 ## 稳定 API
 
-`0.5.0` 的稳定公共入口由 `core` 包导出：
+`0.9.0` 的稳定公共入口由 `general_mini_agent` 包导出：
 
-- 模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
+- 同步模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
+- 异步模型：`AsyncChatModel`、`AsyncStreamingChatModel`、`AsyncLLM`
 - 工具：`tool`、`Tool`、`ToolRegistry`、`ToolExecutionResult`、`JSONValue`、
   `ToolAuthorizationRequest`、`ToolAuthorizationDecision`、`ToolAuthorizationPolicy`
-- Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
+- 异步工具：`AsyncToolRegistry`
+- 同步 Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
+- 异步 Agent：`AsyncAgent`
 - 上下文：`TokenCounter`、`ApproximateTokenCounter`、`ContextPolicy`、
   `TokenBudgetContext`、`SummarizingContext`、`ContextBudgetExceeded`
 - 会话：`ConversationMemory`、`InMemoryConversation`
@@ -198,7 +352,7 @@ policy = TokenBudgetContext(
 读取必须显式选择更宽作用域。
 
 ```python
-from core import Agent, InMemoryLongTermStore, MemoryNamespace, MemoryQuery
+from general_mini_agent import Agent, InMemoryLongTermStore, MemoryNamespace, MemoryQuery
 
 namespace = MemoryNamespace("user-1", "conversation-1", "assistant")
 long_term_memory = InMemoryLongTermStore()
@@ -219,8 +373,11 @@ ChromaDB 仍是首次操作时才加载的可选依赖。
 长期记忆不包含自动记忆选择、自动写入、异步存储、复杂元数据表达式、重排序或分数归一化。
 
 `SlidingWindowMemory` 和 `LongTermMemory` 仅保留兼容导出，不属于稳定 API。
-`core.trace` 仍属于实验性模块。`SummarizingContext` 必须由调用方
+`general_mini_agent.trace` 仍属于实验性模块。`SummarizingContext` 必须由调用方
 显式提供摘要函数，不会在后台复用主模型；摘要失败时回退到确定性裁剪。
+
+**弃用说明**：`core` 命名空间在 0.9.0 仍可使用，但将在 1.0.0 删除。请迁移到
+`general_mini_agent` 命名空间。详见 [docs/MIGRATING.md](docs/MIGRATING.md)。
 
 ### 结构化工具结果
 
@@ -229,7 +386,7 @@ ChromaDB 仍是首次操作时才加载的可选依赖。
 使用确定性紧凑 JSON 序列化：
 
 ```python
-from core import ToolExecutionResult, tool
+from general_mini_agent import ToolExecutionResult, tool
 
 @tool
 def fetch() -> dict:
@@ -250,7 +407,7 @@ def fetch() -> dict:
 fail-closed：工具函数不会被调用。
 
 ```python
-from core import Agent, ToolAuthorizationDecision, ToolAuthorizationRequest
+from general_mini_agent import Agent, ToolAuthorizationDecision, ToolAuthorizationRequest
 
 class AllowSafeOnly:
     def authorize(self, request: ToolAuthorizationRequest):
@@ -274,7 +431,7 @@ agent = Agent(
 重复使用同一个 `Debate` 实例不会混入上一次运行。
 
 ```python
-from core import Debate, DebateConfig, DebateRole
+from general_mini_agent import Debate, DebateConfig, DebateRole
 
 debate = Debate(
     participants=[
@@ -310,8 +467,8 @@ python demo/export_demo.py debate
 
 ```bash
 python -m pytest tests -v
-python -m compileall -q core demo tests
-ruff check core tests demo
+python -m compileall -q general_mini_agent core demo tests
+ruff check general_mini_agent core tests demo
 ```
 
 ## 开发文档

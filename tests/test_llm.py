@@ -7,9 +7,15 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-import core.llm as llm_module
-from core import StreamChunk, StreamingChatModel, ToolCallDelta
-from core.llm import LLM, LLMConfig, LLMResponse, ModelRequestError
+import general_mini_agent.llm as llm_module
+from general_mini_agent import StreamChunk, StreamingChatModel, ToolCallDelta
+from general_mini_agent.llm import (
+    LLM,
+    LLMConfig,
+    LLMResponse,
+    ModelRequestError,
+    parse_response_payload,
+)
 
 
 def make_streaming_llm(
@@ -367,12 +373,7 @@ def test_llm_chat_stream_retries_retryable_http_error_then_yields_chunks() -> No
 
 
 class TestLLMResponseParsing:
-    """测试 _parse_response 的 JSON 解析逻辑"""
-
-    def setup_method(self):
-        # 用一个假的 api_key 来初始化（不会真正发请求）
-        self.config = LLMConfig(api_key="test-key")
-        self.llm = LLM(self.config)
+    """测试 parse_response_payload 的 JSON 解析逻辑"""
 
     def test_text_response(self):
         data = {
@@ -383,7 +384,7 @@ class TestLLMResponseParsing:
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content == "你好！"
         assert resp.tool_calls is None
         assert resp.usage["total_tokens"] == 15
@@ -408,7 +409,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content == "我需要计算"
         assert resp.tool_calls is not None
         assert len(resp.tool_calls) == 1
@@ -439,7 +440,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert len(resp.tool_calls) == 2
         assert resp.tool_calls[0].name == "add"
         assert resp.tool_calls[1].name == "multiply"
@@ -454,7 +455,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content is None
         assert resp.tool_calls is None
 
@@ -472,7 +473,7 @@ class TestLLMResponseParsing:
             "usage": {},
             "model": "deepseek-chat",
         }
-        resp = self.llm._parse_response(data)
+        resp = parse_response_payload(data)
         assert resp.content == "好的"
         assert resp.tool_calls is None
 
@@ -492,3 +493,43 @@ class TestLLMInit:
         llm = LLM(config)
         assert llm.config.model == "custom-model"
         assert llm.config.temperature == 0.5
+
+
+class TestModelResponseContract:
+    """测试模型响应契约：保留 finish_reason 和原始工具参数"""
+
+    def test_parse_response_payload_preserves_finish_reason_and_raw_arguments(self):
+        """解析响应负载时保留 finish_reason 和原始参数"""
+        response = parse_response_payload({
+            "choices": [{
+                "message": {"content": "use tool", "tool_calls": [{
+                    "id": "c1", "type": "function",
+                    "function": {"name": "lookup", "arguments": '{"q":"x"}'},
+                }]},
+                "finish_reason": "tool_calls",
+            }],
+        })
+        assert response.finish_reason == "tool_calls"
+        assert response.tool_calls[0].arguments == {"q": "x"}
+        assert response.tool_calls[0].raw_arguments == '{"q":"x"}'
+
+    @pytest.mark.parametrize("raw", ['{"q":', '[1, 2]'])
+    def test_invalid_tool_arguments_are_retained(self, raw):
+        """无效的工具参数被保留"""
+        response = parse_response_payload({
+            "choices": [{
+                "message": {"content": None, "tool_calls": [{
+                    "id": "c1", "type": "function",
+                    "function": {"name": "lookup", "arguments": raw},
+                }]},
+                "finish_reason": "tool_calls",
+            }],
+        })
+        call = response.tool_calls[0]
+        assert call.arguments is None
+        assert call.raw_arguments == raw
+        assert call.argument_error
+
+    def test_legacy_llm_response_constructor_remains_valid(self):
+        """遗留的 LLMResponse 构造函数保持有效"""
+        assert LLMResponse(content="ok", tool_calls=None).finish_reason == ""

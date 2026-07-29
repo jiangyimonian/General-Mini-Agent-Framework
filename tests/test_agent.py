@@ -7,17 +7,17 @@ from unittest.mock import Mock
 import pytest
 from conftest import ScriptedChatModel, ScriptedStreamingChatModel
 
-from core.agent import Agent
-from core.context import ContextBudgetExceeded
-from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
-from core.long_term_memory import (
+from general_mini_agent.agent import Agent
+from general_mini_agent.context import ContextBudgetExceeded
+from general_mini_agent.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
+from general_mini_agent.long_term_memory import (
     MemoryNamespace,
     MemoryQuery,
     MemoryStoreError,
     create_memory_record,
 )
-from core.memory import InMemoryConversation
-from core.tools import Tool, tool
+from general_mini_agent.memory import InMemoryConversation
+from general_mini_agent.tools import Tool, tool
 
 
 class RecordingContextPolicy:
@@ -642,15 +642,16 @@ class TestAgentBasic:
         assert events[-1]["stop_reason"] == "max_iterations"
 
     def test_empty_response(self):
-        """LLM 返回空响应"""
+        """LLM 返回空响应应该返回 model_error"""
         mock_llm = make_mock_llm([
             LLMResponse(content=None, tool_calls=None, usage={}),
-            LLMResponse(content="[FINAL] 恢复", tool_calls=None, usage={}),
         ])
 
         agent = Agent(llm=mock_llm, tools=[], max_iterations=5)
         result = agent.run("测试")
-        assert result.content == "恢复"
+        assert result.stop_reason == "model_error"
+        assert result.content == ""
+        assert "empty response" in result.error.lower()
 
     def test_usage_accumulation(self):
         """多次调用的 token 用量应累加"""
@@ -740,8 +741,48 @@ def test_second_model_call_receives_tool_result() -> None:
     }
 
 
+def test_two_tools_in_one_turn_builds_canonical_message_sequence() -> None:
+    """验证多工具调用的消息序列符合协议规范：一次 assistant 包含所有工具调用，然后所有工具结果"""
+    from conftest import StrictScriptedChatModel
+
+    model = StrictScriptedChatModel([
+        LLMResponse(
+            content="use both tools",
+            tool_calls=[
+                ToolCall("c1", "add", {"a": 2, "b": 3}),
+                ToolCall("c2", "multiply", {"a": 4, "b": 5}),
+            ],
+        ),
+        LLMResponse(content="done", tool_calls=None),
+    ])
+
+    result = Agent(
+        llm=model,
+        tools=[
+            Tool(lambda a, b: a + b, name="add"),
+            Tool(lambda a, b: a * b, name="multiply"),
+        ],
+    ).run("calculate")
+
+    assert result.content == "done"
+    # 验证第二次模型调用收到正确消息序列：
+    # [system, user, assistant(tool_calls=[c1, c2]), tool(c1), tool(c2)]
+    second_call_messages = model.calls[1][0]
+    assert len(second_call_messages) == 5
+    assert second_call_messages[0]["role"] == "system"
+    assert second_call_messages[1]["role"] == "user"
+    assert second_call_messages[2]["role"] == "assistant"
+    assert len(second_call_messages[2]["tool_calls"]) == 2
+    assert second_call_messages[2]["tool_calls"][0]["id"] == "c1"
+    assert second_call_messages[2]["tool_calls"][1]["id"] == "c2"
+    assert second_call_messages[3]["role"] == "tool"
+    assert second_call_messages[3]["tool_call_id"] == "c1"
+    assert second_call_messages[4]["role"] == "tool"
+    assert second_call_messages[4]["tool_call_id"] == "c2"
+
+
 def test_agent_config_is_exported_from_core() -> None:
-    from core import AgentConfig
+    from general_mini_agent import AgentConfig
 
     assert AgentConfig().max_iterations == 10
 
@@ -1109,6 +1150,113 @@ def test_memory_write_failure_is_not_reported_as_model_error() -> None:
         Agent(llm=model, tools=[], memory=FailingMemory()).run("question")
 
 
+class TestSyncTerminalBehavior:
+    """Tests for sync run() terminal behavior and prompt."""
+
+    @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "unknown_reason"])
+    def test_sync_run_maps_non_terminal_finish_reason_to_incomplete(
+        self, finish_reason: str
+    ) -> None:
+        """Non-terminal finish reasons should return incomplete result."""
+        model = ScriptedChatModel([
+            LLMResponse(
+                content="partial answer",
+                tool_calls=None,
+                finish_reason=finish_reason,
+            ),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("question")
+
+        assert result.stop_reason == "incomplete"
+        assert result.content == "partial answer"
+        assert result.error is not None
+        assert finish_reason in result.error
+
+    def test_sync_run_returns_model_error_on_empty_response(self) -> None:
+        """Empty response (no content, no tool calls) should return model_error."""
+        model = ScriptedChatModel([
+            LLMResponse(content=None, tool_calls=None, finish_reason=None),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("question")
+
+        assert result.stop_reason == "model_error"
+        assert result.content == ""
+        assert "empty response" in result.error.lower()
+        assert result.iterations == 0
+        # Should not append fake assistant message to messages
+        assert len(model.calls) == 1
+
+    def test_sync_run_handles_legacy_model_response_without_finish_reason(self) -> None:
+        """Legacy response with text but no finish_reason should complete."""
+        model = ScriptedChatModel([
+            LLMResponse(content="legacy answer", tool_calls=None, finish_reason=None),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("question")
+
+        assert result.stop_reason == "completed"
+        assert result.content == "legacy answer"
+        assert result.error is None
+
+    def test_sync_run_commits_memory_only_on_completed(self) -> None:
+        """Memory should only be committed when stop_reason is completed."""
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+
+        # Test incomplete result does not commit memory
+        incomplete_model = ScriptedChatModel([
+            LLMResponse(content="partial", tool_calls=None, finish_reason="length"),
+        ])
+        Agent(llm=incomplete_model, tools=[], memory=memory).run("question 1")
+        assert memory.get_context() == []
+
+        # Test model_error does not commit memory
+        error_model = ScriptedChatModel([
+            LLMResponse(content=None, tool_calls=None, finish_reason=None),
+        ])
+        Agent(llm=error_model, tools=[], memory=memory).run("question 2")
+        assert memory.get_context() == []
+
+        # Test completed result commits memory
+        completed_model = ScriptedChatModel([
+            LLMResponse(content="answer", tool_calls=None, finish_reason="stop"),
+        ])
+        Agent(llm=completed_model, tools=[], memory=memory).run("question 3")
+        assert memory.get_context() == [
+            {"role": "user", "content": "question 3"},
+            {"role": "assistant", "content": "answer"},
+        ]
+
+    def test_sync_run_final_hook_receives_trace_copy(self) -> None:
+        """Final hook should receive a copy of the final trace entry."""
+        final_hooks: list[dict] = []
+
+        model = ScriptedChatModel([
+            LLMResponse(content="final answer", tool_calls=None, finish_reason="stop"),
+        ])
+
+        result = Agent(
+            llm=model,
+            tools=[],
+            hooks={"on_final": final_hooks.append},
+        ).run("question")
+
+        assert result.stop_reason == "completed"
+        assert len(final_hooks) == 1
+
+        # Hook receives the trace entry
+        hook_data = final_hooks[0]
+        assert hook_data["type"] == "final"
+        assert hook_data["final_answer"] == "final answer"
+
+        # Modifying hook data should not affect result trace
+        hook_data["modified"] = "test"
+        assert "modified" not in result.trace[-1]
+
+
 class TestAgentToolAuthorization:
     """Tests for authorization policy integration in Agent."""
 
@@ -1123,7 +1271,7 @@ class TestAgentToolAuthorization:
 
         class DenyPolicy:
             def authorize(self, request: Any) -> Any:
-                from core.tools import ToolAuthorizationDecision
+                from general_mini_agent.tools import ToolAuthorizationDecision
 
                 return ToolAuthorizationDecision(allowed=False, reason="blocked")
 
@@ -1175,3 +1323,81 @@ class TestAgentToolAuthorization:
         second_request = model.stream_calls[1][0]
         tool_message = second_request[-1]
         assert tool_message["content"] == expected_json
+
+
+def test_stream_executes_complete_tool_calls_with_stop_finish_reason() -> None:
+    """工具调用存在时即使finish_reason='stop'也要执行。"""
+
+    @tool
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "add", '{"a":1,"b":2}')],
+            finish_reason="stop",  # 不是"tool_calls"
+        )],
+        [StreamChunk(content="done", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[add]).run_stream("question"))
+
+    # 应该执行工具调用
+    tool_events = [e for e in events if e["type"] == "tool_call"]
+    assert len(tool_events) == 1
+    assert tool_events[0]["name"] == "add"
+
+    # 应该继续循环并完成
+    assert events[-1]["stop_reason"] == "completed"
+
+
+def test_stream_text_without_finish_reason_returns_incomplete() -> None:
+    """流式文本没有finish_reason时应返回incomplete。"""
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(content="partial answer")],  # 无finish_reason
+    ])
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert events[-1]["stop_reason"] == "incomplete"
+    assert events[-1]["content"] == "partial answer"
+
+
+def test_stream_multi_tool_request_executes_all_in_order() -> None:
+    """一条消息中多个工具调用按索引顺序执行。"""
+    calls = []
+
+    @tool
+    def first(x: int) -> int:
+        calls.append(("first", x))
+        return x
+
+    @tool
+    def second(x: int) -> int:
+        calls.append(("second", x))
+        return x
+
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[
+                ToolCallDelta(1, "c2", "second", '{"x":'),
+                ToolCallDelta(0, "c1", "first", '{"x":'),
+            ],
+        ),
+        StreamChunk(
+            tool_calls=[
+                ToolCallDelta(0, arguments="1}"),
+                ToolCallDelta(1, arguments="2}"),
+            ],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(content="done", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[first, second]).run_stream("question"))
+
+    # 按索引顺序执行
+    assert calls == [("first", 1), ("second", 2)]
+    # 验证事件顺序
+    tool_events = [e for e in events if e["type"] == "tool_call"]
+    assert [e["name"] for e in tool_events] == ["first", "second"]

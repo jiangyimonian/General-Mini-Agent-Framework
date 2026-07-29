@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from core.context import (
+from general_mini_agent.context import (
     ApproximateTokenCounter,
     ContextBudgetExceeded,
     SummarizingContext,

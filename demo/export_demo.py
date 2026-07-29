@@ -4,6 +4,7 @@ General Mini Agent Framework HTML 轨迹导出示例。
 运行:
     python demo/export_demo.py          → 生成 output/trace.html
     python demo/export_demo.py debate   → 生成 output/debate.html
+    python demo/export_demo.py json     → 生成 output/trace.json
 """
 
 # Experimental example: not covered by the 0.1.0 stable API.
@@ -18,11 +19,13 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-from core.agent import Agent  # noqa: E402
-from core.debate import create_debate  # noqa: E402
-from core.llm import LLM, LLMConfig  # noqa: E402
-from core.tools import tool  # noqa: E402
-from core.trace import export_debate, export_trace  # noqa: E402
+from general_mini_agent.agent import Agent  # noqa: E402
+from general_mini_agent.debate import create_debate  # noqa: E402
+from general_mini_agent.events import EventCollector  # noqa: E402
+from general_mini_agent.llm import LLM, LLMConfig  # noqa: E402
+from general_mini_agent.tools import tool  # noqa: E402
+from general_mini_agent.trace import export_debate, export_trace  # noqa: E402
+from general_mini_agent.trace_json import TraceDocument, export_trace_json  # noqa: E402
 
 
 @tool(description="计算数学表达式的值")
@@ -88,8 +91,40 @@ def run_debate_export():
     print(f"✅ 导出到: {os.path.abspath(path)}")
 
 
+def run_json_export():
+    """演示 JSON trace 导出。"""
+    collector = EventCollector()
+    agent = Agent(llm=make_llm(), tools=[calculate, search_knowledge], event_sink=collector)
+    question = "光从太阳到地球需要多长时间？"
+    print(f"🤖 运行 Agent (带事件收集): {question}")
+    result = agent.run(question)
+
+    # 创建 trace 文档
+    doc = TraceDocument(
+        schema_version=1,
+        root_run_id=result.run_id,
+        events=collector.snapshot(),
+    )
+
+    # 导出 JSON
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "output")
+    os.makedirs(output_dir, exist_ok=True)
+    path = os.path.join(output_dir, "trace.json")
+    export_trace_json(doc, path)
+    print(f"✅ JSON 导出到: {os.path.abspath(path)}")
+    print(f"   事件数: {len(doc.events)}")
+    print(f"   run_id: {doc.root_run_id}")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "debate":
-        run_debate_export()
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg == "debate":
+            run_debate_export()
+        elif arg == "json":
+            run_json_export()
+        else:
+            print(f"未知参数: {arg}")
+            print("用法: python demo/export_demo.py [debate|json]")
     else:
         run_trace_export()

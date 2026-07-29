@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from core.memory import InMemoryConversation
+from general_mini_agent.memory import InMemoryConversation
 from demo.chat import clear_context
 
 

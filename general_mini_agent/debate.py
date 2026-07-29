@@ -6,7 +6,9 @@ from collections.abc import Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, TypedDict
 
-from .agent import Agent, AgentStopReason, StreamEvent
+from .agent import Agent, StreamEvent
+from .agent_protocol import AgentStopReason
+from .events import EventSink, RunContext, RunEventEmitter
 
 SOLVER_PROMPT = """你是一个严谨的问题求解者。请分析问题并给出你的答案。
 
@@ -57,6 +59,7 @@ class DebateTurn:
     usage: dict[str, int] = field(default_factory=dict)
     stop_reason: AgentStopReason = "completed"
     error: str | None = None
+    run_id: str = ""
 
     def __post_init__(self) -> None:
         self.usage = dict(self.usage)
@@ -95,6 +98,7 @@ class DebateResult:
     stop_reason: DebateStopReason = "completed"
     converged: bool = False
     error: str | None = None
+    run_id: str = ""
 
 
 class DebateRoundStartEvent(TypedDict):
@@ -140,10 +144,12 @@ class Debate:
         *,
         judge: DebateRole | None = None,
         config: DebateConfig | None = None,
+        event_sink: EventSink | None = None,
     ) -> None:
         self.participants = list(participants)
         self.judge = judge
         self.config = config or DebateConfig()
+        self.event_sink = event_sink
         self._validate_roles()
 
     def _validate_roles(self) -> None:
@@ -162,22 +168,31 @@ class Debate:
         rounds: list[DebateRound] = []
         converged = False
 
+        # 创建 Debate 级事件发射器
+        emitter = RunEventEmitter(sink=self.event_sink)
+        emitter.emit("debate_started", {"question": question})
+
         for round_number in range(1, self.config.max_rounds + 1):
             turns: list[DebateTurn] = []
             for participant in self.participants:
+                # 为每个参与者创建子 emitter
+                child_emitter = emitter.child()
                 result = participant.agent.run(
-                    self._build_context(participant, question, rounds, turns)
+                    self._build_context(participant, question, rounds, turns),
+                    run_context=child_emitter.context(),
                 )
-                turn = self._to_turn(participant, result)
+                turn = self._to_turn(participant, result, child_emitter.run_id)
                 turns.append(turn)
                 self._accumulate_usage(total_usage, turn.usage)
                 if turn.stop_reason != "completed":
                     rounds.append(DebateRound(number=round_number, turns=turns))
+                    emitter.emit("debate_finished", {"stop_reason": "participant_error"})
                     return DebateResult(
                         rounds=rounds,
                         total_usage=total_usage,
                         stop_reason="participant_error",
                         error=self._turn_error(turn),
+                        run_id=emitter.run_id,
                     )
 
             debate_round = DebateRound(number=round_number, turns=turns)
@@ -190,19 +205,25 @@ class Debate:
                 break
 
         if self.judge is None:
+            emitter.emit("debate_finished", {"stop_reason": "no_judge"})
             return DebateResult(
                 rounds=rounds,
                 total_usage=total_usage,
                 stop_reason="no_judge",
                 converged=converged,
+                run_id=emitter.run_id,
             )
 
+        # 为 Judge 创建子 emitter
+        judge_emitter = emitter.child()
         judge_result = self.judge.agent.run(
-            self._build_context(self.judge, question, rounds, [])
+            self._build_context(self.judge, question, rounds, []),
+            run_context=judge_emitter.context(),
         )
-        judge_turn = self._to_turn(self.judge, judge_result)
+        judge_turn = self._to_turn(self.judge, judge_result, judge_emitter.run_id)
         self._accumulate_usage(total_usage, judge_turn.usage)
         if judge_turn.stop_reason != "completed":
+            emitter.emit("debate_finished", {"stop_reason": "judge_error"})
             return DebateResult(
                 rounds=rounds,
                 judge_turn=judge_turn,
@@ -210,13 +231,16 @@ class Debate:
                 stop_reason="judge_error",
                 converged=converged,
                 error=self._turn_error(judge_turn),
+                run_id=emitter.run_id,
             )
+        emitter.emit("debate_finished", {"stop_reason": "completed", "verdict": judge_turn.content})
         return DebateResult(
             verdict=judge_turn.content,
             rounds=rounds,
             judge_turn=judge_turn,
             total_usage=total_usage,
             converged=converged,
+            run_id=emitter.run_id,
         )
 
     def run_stream(self, question: str) -> Iterator[DebateStreamEvent]:
@@ -224,6 +248,10 @@ class Debate:
         total_usage: dict[str, int] = {}
         rounds: list[DebateRound] = []
         converged = False
+
+        # 创建 Debate 级事件发射器
+        emitter = RunEventEmitter(sink=self.event_sink)
+        emitter.emit("debate_started", {"question": question})
 
         for round_number in range(1, self.config.max_rounds + 1):
             yield DebateRoundStartEvent(type="round_start", round=round_number)
@@ -235,9 +263,12 @@ class Debate:
                     phase="participant",
                     round=round_number,
                 )
+                # 为每个参与者创建子 emitter
+                child_emitter = emitter.child()
                 turn = yield from self._stream_role(
                     participant,
                     self._build_context(participant, question, rounds, turns),
+                    child_emitter.context(),
                 )
                 turns.append(turn)
                 self._accumulate_usage(total_usage, turn.usage)
@@ -248,7 +279,9 @@ class Debate:
                         total_usage=total_usage,
                         stop_reason="participant_error",
                         error=self._turn_error(turn),
+                        run_id=emitter.run_id,
                     )
+                    emitter.emit("debate_finished", {"stop_reason": "participant_error"})
                     yield self._done_event(result)
                     return
 
@@ -262,12 +295,14 @@ class Debate:
                 break
 
         if self.judge is None:
+            emitter.emit("debate_finished", {"stop_reason": "no_judge"})
             yield self._done_event(
                 DebateResult(
                     rounds=rounds,
                     total_usage=total_usage,
                     stop_reason="no_judge",
                     converged=converged,
+                    run_id=emitter.run_id,
                 )
             )
             return
@@ -278,9 +313,12 @@ class Debate:
             phase="judge",
             round=None,
         )
+        # 为 Judge 创建子 emitter
+        judge_emitter = emitter.child()
         judge_turn = yield from self._stream_role(
             self.judge,
             self._build_context(self.judge, question, rounds, []),
+            judge_emitter.context(),
         )
         self._accumulate_usage(total_usage, judge_turn.usage)
         if judge_turn.stop_reason != "completed":
@@ -291,7 +329,9 @@ class Debate:
                 stop_reason="judge_error",
                 converged=converged,
                 error=self._turn_error(judge_turn),
+                run_id=emitter.run_id,
             )
+            emitter.emit("debate_finished", {"stop_reason": "judge_error"})
         else:
             result = DebateResult(
                 verdict=judge_turn.content,
@@ -299,6 +339,10 @@ class Debate:
                 judge_turn=judge_turn,
                 total_usage=total_usage,
                 converged=converged,
+                run_id=emitter.run_id,
+            )
+            emitter.emit(
+                "debate_finished", {"stop_reason": "completed", "verdict": judge_turn.content}
             )
         yield self._done_event(result)
 
@@ -306,9 +350,10 @@ class Debate:
         self,
         role: DebateRole,
         context: str,
+        run_context: RunContext | None = None,
     ) -> Generator[DebateAgentEvent, None, DebateTurn]:
         done_event: StreamEvent | None = None
-        for event in role.agent.run_stream(context):
+        for event in role.agent.run_stream(context, run_context=run_context):
             yield DebateAgentEvent(type="agent_event", role=role.name, event=event)
             if event["type"] == "done":
                 done_event = event
@@ -346,13 +391,14 @@ class Debate:
         return f"{prompt}\n\n## Conversation\n\n" + "\n".join(history)
 
     @staticmethod
-    def _to_turn(role: DebateRole, result: object) -> DebateTurn:
+    def _to_turn(role: DebateRole, result: object, run_id: str = "") -> DebateTurn:
         return DebateTurn(
             role=role.name,
             content=getattr(result, "content"),
             usage=getattr(result, "usage"),
             stop_reason=getattr(result, "stop_reason"),
             error=getattr(result, "error"),
+            run_id=run_id,
         )
 
     @staticmethod

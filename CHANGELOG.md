@@ -5,6 +5,112 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0] - 2026-07-29
+
+### 变更
+
+- 删除 `core` 命名空间，仅保留 `general_mini_agent`
+- 所有测试和文档更新为使用新命名空间
+- 版本号更新为 1.0.0，公共 API 冻结
+
+### 迁移说明
+
+从 0.9.0 升级：将 `from core import X` 替换为 `from general_mini_agent import X`。
+
+## [0.9.0] - 2026-07-28
+
+### 新增
+
+- `general_mini_agent` 命名空间：稳定的公共 API 入口，导出所有公共组件
+- 模型能力适配器：`ProviderCapabilities` 自动检测并适配 OpenAI、DeepSeek、Claude 等服务商的工具调用差异
+- 统一配置：`FrameworkConfig` 提供框架级配置入口
+- 安全日志：自动脱敏 API Key、Authorization header 等敏感信息
+- 迁移文档：`docs/MIGRATING.md` 提供 `core` 到 `general_mini_agent` 的机械替换步骤
+
+### 变更
+
+- 版本号更新为 0.9.0
+- 所有文档和 Demo 更新为 `from general_mini_agent import` 导入风格
+- README 新增 0.9.0 能力说明和迁移指南链接
+- `docs/RELEASING.md` 更新验证命令使用新命名空间
+
+### 弃用
+
+- `core` 命名空间在 0.9.0 仍可使用，但将在 1.0.0 删除
+- 建议尽快迁移到 `general_mini_agent` 命名空间
+
+## [0.8.0] - 2026-07-28
+
+### 新增
+
+- 工作流节点：`Workflow`、`WorkflowNode` 协议、`WorkflowResult`
+- 串行节点：`SequenceNode` 依次执行，传递前一节点输出
+- 并行节点：`ParallelNode` 有限并发，结果按声明顺序排列
+- 条件节点：`ConditionalNode` 根据 predicate 选择分支
+- 错误策略：`fail_fast` 和 `collect_errors`
+- 适配器：`AgentNode`、`AsyncAgentNode`、`DebateNode`
+- 离线工作流 Demo：`demo/workflow_demo.py`
+
+### 变更
+
+- 版本号更新为 0.8.0
+- PLAN.md 新增 workflow.py 和 workflow_adapters.py 模块说明
+- ROADMAP.md 移除已稳定的编排条目
+
+## [0.7.1] - 2026-07-28
+
+### 新增
+
+- HTML 报告渲染：`trace_to_html()`、`export_trace_html()`、`compare_traces_to_html()`
+- 事件过滤：类型、run ID、停止原因、仅错误
+- 双运行对比报告：显示 usage、耗时、错误差异
+- 离线 Demo：`python demo/offline.py` 生成 Agent 和 Debate 轨迹
+- 脚本化模型：`demo/scripted_models.py` 用于无网络测试
+
+### 变更
+
+- HTML 报告从实验性提升为稳定能力
+- 版本号更新为 0.7.1
+- PLAN.md 将 HTML trace 标记为稳定
+
+## [0.7.0] - 2026-07-28
+
+### 新增
+
+- 运行上下文：`RunContext` 持有唯一 `run_id` 和父运行关系
+- 事件 envelope：`RunEvent` 包含序号、时间戳、耗时和 payload
+- 事件收集器：`EventCollector` 内存收集器，线程安全，支持不可变快照
+- 事件发射器：`RunEventEmitter` 管理序号和时钟，支持父子关系
+- 版本化 JSON trace：`TraceDocument`、`trace_to_json()`、`trace_from_json()`、`export_trace_json()`
+- Agent 和 Debate 发射 `run_started` / `run_finished` 事件
+- Debate 参与者和 Judge 拥有独立子 run ID，正确指向父 run ID
+- 模型错误自动脱敏，不包含 Authorization header 或 API Key
+- `AgentResult` 和 `DebateResult` 新增 `run_id` 字段
+
+### 变更
+
+- 版本号更新为 0.7.0
+- PLAN.md 新增 events.py 和 trace_json.py 模块说明
+- ROADMAP.md 移除已稳定的可观测性条目
+
+## [0.6.0] - 2026-07-28
+
+### 新增
+
+- 异步模型协议：`AsyncChatModel`、`AsyncStreamingChatModel`、`AsyncLLM`
+- `AsyncLLM` 支持 `async with` 生命周期管理、异步重试和 SSE 流式响应
+- 异步工具注册与执行：`AsyncToolRegistry`、`execute_async()`
+- 工具 timeout 配置：超过 deadline 返回 `tool_timeout` observation
+- `CancelledError` 从模型、工具、Agent 原样传播
+- 异步 Agent：`AsyncAgent.run_async()` 和 `run_stream_async()`
+- `demo/reasoning_async.py` 异步示例
+
+### 变更
+
+- 同步 callable 通过 `asyncio.to_thread()` 在后台线程执行
+- 取消等待不会终止后台线程，同步工具可能继续产生副作用
+- 版本号更新为 0.6.0
+
 ## [0.5.0] - 2026-07-27
 
 ### 新增

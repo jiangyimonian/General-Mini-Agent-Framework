@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.context import ApproximateTokenCounter
-from core.long_term_memory import (
+from general_mini_agent.context import ApproximateTokenCounter
+from general_mini_agent.long_term_memory import (
     ChromaMemoryStore,
     InMemoryLongTermStore,
     MemoryNamespace,

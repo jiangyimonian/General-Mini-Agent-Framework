@@ -122,3 +122,30 @@ class StrictScriptedAsyncChatModel(ScriptedAsyncChatModel):
     ) -> LLMResponse:
         assert_valid_tool_transcript(messages)
         return await super().chat_async(messages, tools=tools)
+
+
+class ScriptedAsyncStreamingChatModel:
+    """异步流式脚本模型，用于测试 AsyncAgent 的 run_stream_async。"""
+
+    def __init__(
+        self,
+        streams: Sequence[Sequence[StreamChunk] | Exception],
+    ) -> None:
+        self._streams = list(streams)
+        self.calls: list[tuple[list[dict[str, Any]], list[dict[str, Any]] | None]] = []
+
+    async def chat_stream_async(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ):
+        from copy import deepcopy
+        self.calls.append((deepcopy(messages), deepcopy(tools)))
+        if not self._streams:
+            raise AssertionError("ScriptedAsyncStreamingChatModel has no remaining streams")
+        stream = self._streams.pop(0)
+        if isinstance(stream, Exception):
+            raise stream
+        for chunk in stream:
+            yield chunk

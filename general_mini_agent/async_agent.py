@@ -7,7 +7,6 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 # 重用同步版本的结果类型
-# 重用同步版本的辅助类
 from .agent import (
     DEFAULT_SYSTEM_PROMPT,
     AgentResult,
@@ -17,12 +16,11 @@ from .agent import (
     StreamEvent,
     ToolCallEvent,
     TraceEvent,
-    _AccumulatedToolCall,
-    _ToolCallAccumulator,
 )
 from .agent_protocol import (
     AgentStopReason,
     AssistantTurn,
+    StreamingTurnAccumulator,
     ToolOutcome,
     TurnDecision,
     append_assistant_turn,
@@ -317,11 +315,7 @@ class AsyncAgent:
         for iteration in range(self.max_iterations):
             yield {"type": "iteration_start", "iteration": iteration}
 
-            thought_parts: list[str] = []
-            tool_calls = _ToolCallAccumulator()
-            finalized_calls: list[_AccumulatedToolCall] | None = None
-            finish_reason = ""
-            request_usage: dict[str, int] = {}
+            accumulator = StreamingTurnAccumulator()
 
             try:
                 request_messages = self._prepare_request(messages)
@@ -347,27 +341,19 @@ class AsyncAgent:
                 async for chunk in self.llm.chat_stream_async(
                     request_messages, tools=self.registry.schemas()
                 ):
+                    accumulator.add(chunk)
                     if chunk.content:
-                        thought_parts.append(chunk.content)
                         yield {
                             "type": "thought_chunk",
                             "iteration": iteration,
                             "text": chunk.content,
                         }
 
-                    for delta in chunk.tool_calls:
-                        tool_calls.add(delta)
-
-                    for key, value in chunk.usage.items():
-                        if isinstance(value, int):
-                            request_usage[key] = value
-                    if chunk.finish_reason:
-                        finish_reason = chunk.finish_reason
-                if finish_reason == "tool_calls":
-                    finalized_calls = tool_calls.finalize()
-                self._accumulate_usage(total_usage, request_usage)
+                # 累加 usage
+                turn = accumulator.finalize()
+                self._accumulate_usage(total_usage, turn.usage)
             except ModelRequestError as exc:
-                self._accumulate_usage(total_usage, request_usage)
+                self._accumulate_usage(total_usage, accumulator._usage)
                 error = str(exc)
                 trace.append({
                     "type": "model_error",
@@ -394,95 +380,58 @@ class AsyncAgent:
                 )
                 return
 
-            thought = "".join(thought_parts)
+            # 使用协议接口处理回合
+            append_assistant_turn(messages, turn)
+            decision = classify_turn(turn)
 
-            if finalized_calls is not None:
-                messages.append({
-                    "role": "assistant",
-                    "content": thought,
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": call.raw_arguments,
-                            },
-                        }
-                        for call in finalized_calls
-                    ],
-                })
+            if decision.action == "continue":
+                # 执行所有工具调用
+                outcomes = []
+                for index, call in enumerate(turn.tool_calls):
+                    execution = (
+                        invalid_arguments_result(call)
+                        if call.arguments is None
+                        else await self.registry.execute_async(call.name, call.arguments)
+                    )
+                    outcomes.append(ToolOutcome(call, execution))
 
-                for call in finalized_calls:
-                    raw_arguments = call.raw_arguments
-                    try:
-                        parsed = json.loads(raw_arguments)
-                        if not isinstance(parsed, dict):
-                            raise ValueError("tool arguments must be a JSON object")
-                        arguments: dict[str, Any] | None = parsed
-                        execution = await self.registry.execute_async(call.name, parsed)
-                    except (json.JSONDecodeError, ValueError) as exc:
-                        arguments = None
-                        execution = ToolExecutionResult(
-                            content=f"invalid arguments for tool '{call.name}': {exc}",
-                            error_code="invalid_arguments",
-                        )
-
-                    obs = execution.content
+                    # 构建并发送事件
                     tool_event: ToolCallEvent = {
                         "type": "tool_call",
                         "iteration": iteration,
-                        "index": call.index,
+                        "index": index,
                         "id": call.id,
                         "name": call.name,
-                        "arguments": arguments,
-                        "raw_arguments": raw_arguments,
-                    }
-                    observation_event: ObservationEvent = {
-                        "type": "observation",
-                        "iteration": iteration,
-                        "index": call.index,
-                        "tool_call_id": call.id,
-                        "name": call.name,
-                        "text": obs,
+                        "arguments": call.arguments,
+                        "raw_arguments": call.raw_arguments or "",
                     }
                     if execution.error_code is not None:
                         tool_event["error_code"] = execution.error_code
+
+                    observation_event: ObservationEvent = {
+                        "type": "observation",
+                        "iteration": iteration,
+                        "index": index,
+                        "tool_call_id": call.id,
+                        "name": call.name,
+                        "text": execution.content,
+                    }
+                    if execution.error_code is not None:
                         observation_event["error_code"] = execution.error_code
+
                     yield tool_event
                     yield observation_event
 
-                    trace_event: TraceEvent = {
-                        "type": "tool_call",
-                        "iteration": iteration,
-                        "thought": thought,
-                        "tool": call.name,
-                        "tool_call_id": call.id,
-                        "index": call.index,
-                        "arguments": arguments,
-                        "raw_arguments": raw_arguments,
-                        "observation": obs,
-                    }
-                    if execution.error_code is not None:
-                        trace_event["error_code"] = execution.error_code
+                    # 构建trace事件
+                    trace_event = build_tool_trace(iteration, turn, index, call, execution)
                     trace.append(trace_event)
-                    self._call_hook("on_tool_call", trace[-1])
+                    self._call_hook("on_tool_call", dict(trace_event))
 
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "content": obs,
-                    })
+                append_tool_outcomes(messages, outcomes)
                 continue
 
-            if finish_reason == "stop":
-                clean = (
-                    thought.replace("[FINAL]", "")
-                    .replace("Final Answer:", "")
-                    .replace("最终答案：", "")
-                    .replace("最终答案:", "")
-                    .strip()
-                )
+            if decision.action == "complete":
+                clean = clean_final_content(turn.content or "")
                 yield {
                     "type": "final_answer",
                     "iteration": iteration,
@@ -491,7 +440,7 @@ class AsyncAgent:
                 trace.append({
                     "type": "final_answer",
                     "iteration": iteration,
-                    "thought": thought,
+                    "thought": turn.content or "",
                     "final_answer": clean,
                 })
                 self._call_hook("on_final", trace[-1])
@@ -502,25 +451,23 @@ class AsyncAgent:
                     usage=total_usage,
                     iterations=iteration + 1,
                     stop_reason="completed",
-                    finish_reason=finish_reason,
+                    finish_reason=turn.finish_reason,
                 )
                 return
 
-            trace.append({
-                "type": "incomplete",
-                "iteration": iteration,
-                "thought": thought,
-                "finish_reason": finish_reason,
-            })
-            yield self._done_event(
-                content=thought,
-                trace=trace,
-                usage=total_usage,
-                iterations=iteration + 1,
-                stop_reason="incomplete",
-                finish_reason=finish_reason,
-            )
-            return
+            if decision.action == "stop_error":
+                trace_event = build_incomplete_trace(iteration, turn, decision)
+                trace.append(trace_event)
+                yield self._done_event(
+                    content=turn.content or "",
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration + 1,
+                    stop_reason=decision.stop_reason or "incomplete",
+                    finish_reason=turn.finish_reason,
+                    error=safe_error_message(decision),
+                )
+                return
 
         yield self._done_event(
             content="（已达最大迭代次数，未能得出最终答案）",

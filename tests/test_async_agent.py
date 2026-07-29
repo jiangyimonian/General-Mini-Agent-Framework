@@ -698,3 +698,344 @@ class TestAsyncAgentProtocolMigration:
             assert len(memory.get_context()) == 0
 
         asyncio.run(run())
+
+
+# ─────────────────────────────────────────────────────────────
+# AsyncAgent run_stream_async 测试
+# ─────────────────────────────────────────────────────────────
+
+
+class TestAsyncAgentStreaming:
+    """测试 AsyncAgent.run_stream_async 行为。"""
+
+    def test_interleaved_multi_tool_chunks_execute_by_index(self) -> None:
+        """交叉多工具 chunks 按索引执行。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        calls: list[str] = []
+
+        @tool
+        async def first(value: int) -> str:
+            calls.append("first")
+            return str(value)
+
+        @tool
+        async def second(value: int) -> str:
+            calls.append("second")
+            return str(value)
+
+        model = ScriptedAsyncStreamingChatModel([
+            [
+                StreamChunk(tool_calls=[
+                    ToolCallDelta(1, "c2", "second", '{"value":'),
+                    ToolCallDelta(0, "c1", "first", '{"value":'),
+                ]),
+                StreamChunk(tool_calls=[
+                    ToolCallDelta(0, arguments="1}"),
+                    ToolCallDelta(1, arguments="2}"),
+                ], finish_reason="tool_calls"),
+            ],
+            [StreamChunk(content="done", finish_reason="stop")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[first, second])
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert calls == ["first", "second"]
+            assert [e["name"] for e in events if e["type"] == "tool_call"] == [
+                "first", "second"
+            ]
+
+        asyncio.run(run())
+
+    def test_finish_reason_stop_completes(self) -> None:
+        """finish_reason=stop 正常完成。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk
+
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="answer", finish_reason="stop")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model)
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert events[-1]["stop_reason"] == "completed"
+            assert events[-1]["content"] == "answer"
+
+        asyncio.run(run())
+
+    def test_invalid_json_arguments_returns_error(self) -> None:
+        """无效 JSON 参数返回 invalid_arguments 错误。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        @tool
+        async def add(a: int, b: int) -> int:
+            return a + b
+
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c1", "add", '{"a":1')],
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(content="corrected", finish_reason="stop")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[add])
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            tool_event = next(e for e in events if e["type"] == "tool_call")
+            assert tool_event["error_code"] == "invalid_arguments"
+            assert tool_event["arguments"] is None
+            assert tool_event["raw_arguments"] == '{"a":1'
+
+        asyncio.run(run())
+
+    def test_text_without_finish_reason_is_incomplete(self) -> None:
+        """缺少 finish reason 的文本返回 incomplete。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk
+
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="partial answer")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model)
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert events[-1]["stop_reason"] == "incomplete"
+            assert events[-1]["content"] == "partial answer"
+
+        asyncio.run(run())
+
+    def test_stream_protocol_error_returns_model_error(self) -> None:
+        """流协议错误返回 model_error。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
+
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "", "tool_name", "{}")],
+                finish_reason="tool_calls",
+            )],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model)
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert events[-1]["stop_reason"] == "model_error"
+            model_error = next(e for e in events if e["type"] == "model_error")
+            assert model_error["error_code"] == "stream_protocol_error"
+
+        asyncio.run(run())
+
+    def test_usage_snapshots_accumulated_correctly(self) -> None:
+        """usage 快照正确累积。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        @tool
+        async def noop() -> str:
+            return "ok"
+
+        model = ScriptedAsyncStreamingChatModel([
+            [
+                StreamChunk(usage={"prompt_tokens": 3, "total_tokens": 3}),
+                StreamChunk(
+                    tool_calls=[ToolCallDelta(0, "c1", "noop", "{}")],
+                    finish_reason="tool_calls",
+                ),
+                StreamChunk(usage={"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}),
+            ],
+            [
+                StreamChunk(content="done", finish_reason="stop"),
+                StreamChunk(usage={"prompt_tokens": 4, "completion_tokens": 1, "total_tokens": 5}),
+            ],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[noop])
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            done = events[-1]
+            assert done["usage"] == {
+                "prompt_tokens": 7,
+                "completion_tokens": 3,
+                "total_tokens": 10,
+            }
+
+        asyncio.run(run())
+
+    def test_early_generator_close_does_not_commit_memory(self) -> None:
+        """早期生成器关闭不提交 memory。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="partial"), StreamChunk(content=" answer", finish_reason="stop")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, memory=memory)
+            gen = agent.run_stream_async("question")
+            # 只消费第一个事件然后关闭生成器
+            event = await gen.__anext__()
+            assert event["type"] == "iteration_start"
+            await gen.aclose()
+            # memory 不应该被提交
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
+    def test_cancellation_does_not_commit_memory(self) -> None:
+        """取消不提交 memory。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+
+        class SlowStreamingModel:
+            async def chat_stream_async(self, messages, *, tools=None):
+                from general_mini_agent.llm import StreamChunk
+                yield StreamChunk(content="partial")
+                await asyncio.sleep(10)
+                yield StreamChunk(content="done", finish_reason="stop")
+
+        async def run():
+            agent = AsyncAgent(llm=SlowStreamingModel(), memory=memory)
+            gen = agent.run_stream_async("question")
+            # 获取第一个事件然后取消
+            event = await gen.__anext__()
+            assert event["type"] == "iteration_start"
+            await gen.aclose()
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
+    def test_max_iterations_does_not_commit_memory(self) -> None:
+        """达到最大迭代不提交 memory。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+
+        @tool
+        async def keep_going() -> str:
+            return "continue"
+
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c1", "keep_going", "{}")],
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c2", "keep_going", "{}")],
+                finish_reason="tool_calls",
+            )],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[keep_going], max_iterations=2, memory=memory)
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert events[-1]["stop_reason"] == "max_iterations"
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
+    def test_tool_calls_presence_not_finish_reason_drives_continuation(self) -> None:
+        """工具调用存在而非 finish_reason='tool_calls' 决定继续。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        calls: list[str] = []
+
+        @tool
+        async def my_tool() -> str:
+            calls.append("tool")
+            return "result"
+
+        # 注意：finish_reason 不是 "tool_calls"，但有工具调用
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c1", "my_tool", "{}")],
+                finish_reason="stop",  # 意外的 finish_reason
+            )],
+            [StreamChunk(content="done", finish_reason="stop")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[my_tool])
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            # 工具应该被执行（因为 tool_calls 非空）
+            assert calls == ["tool"]
+
+        asyncio.run(run())
+
+    def test_tool_failure_allows_model_recovery(self) -> None:
+        """工具失败后模型可以恢复。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        @tool
+        async def explode() -> str:
+            raise RuntimeError("boom")
+
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(
+                tool_calls=[ToolCallDelta(0, "c1", "explode", "{}")],
+                finish_reason="tool_calls",
+            )],
+            [StreamChunk(content="recovered", finish_reason="stop")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[explode])
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert events[-1]["stop_reason"] == "completed"
+            assert events[-1]["content"] == "recovered"
+            tool_event = next(e for e in events if e["type"] == "tool_call")
+            assert tool_event["error_code"] == "execution_failed"
+
+        asyncio.run(run())

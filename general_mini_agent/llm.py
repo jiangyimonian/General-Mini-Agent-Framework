@@ -56,7 +56,22 @@ class ToolCall:
     """LLM 返回的工具调用"""
     id: str
     name: str
-    arguments: dict[str, Any]
+    arguments: dict[str, Any] | None
+    raw_arguments: str = ""
+    argument_error: str | None = None
+
+    @classmethod
+    def from_raw(
+        cls, *, call_id: str, name: str, raw_arguments: str
+    ) -> ToolCall:
+        """从原始 JSON 参数构造 ToolCall，保留原始字符串和解析错误"""
+        try:
+            parsed = json.loads(raw_arguments or "{}")
+            if not isinstance(parsed, dict):
+                raise ValueError("tool arguments must be a JSON object")
+            return cls(call_id, name, parsed, raw_arguments or "{}", None)
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            return cls(call_id, name, None, raw_arguments, str(exc))
 
 
 @dataclass
@@ -66,6 +81,7 @@ class LLMResponse:
     tool_calls: list[ToolCall] | None
     usage: dict[str, int] = field(default_factory=dict)
     model: str = ""
+    finish_reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -121,10 +137,10 @@ def parse_response_payload(data: dict[str, Any]) -> LLMResponse:
     if "tool_calls" in msg and msg["tool_calls"]:
         tool_calls = []
         for tc in msg["tool_calls"]:
-            tool_calls.append(ToolCall(
-                id=tc["id"],
+            tool_calls.append(ToolCall.from_raw(
+                call_id=tc["id"],
                 name=tc["function"]["name"],
-                arguments=json.loads(tc["function"]["arguments"]),
+                raw_arguments=tc["function"]["arguments"],
             ))
 
     return LLMResponse(
@@ -132,6 +148,7 @@ def parse_response_payload(data: dict[str, Any]) -> LLMResponse:
         tool_calls=tool_calls,
         usage=data.get("usage", {}),
         model=data.get("model", ""),
+        finish_reason=choice.get("finish_reason", ""),
     )
 
 

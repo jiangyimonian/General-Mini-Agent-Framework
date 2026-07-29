@@ -147,6 +147,20 @@ class TestAsyncLLMToolResponse:
 
         asyncio.run(run())
 
+    def test_chat_async_preserves_finish_reason(self) -> None:
+        """异步请求保留 finish_reason。"""
+        llm = make_async_llm(
+            b'{"choices":[{"message":{"content":"done","role":"assistant"},'
+            b'"finish_reason":"stop"}],"usage":{},"model":"test"}'
+        )
+
+        async def run():
+            async with llm:
+                result = await llm.chat_async([])
+                assert result.finish_reason == "stop"
+
+        asyncio.run(run())
+
     def test_chat_async_returns_multiple_tool_calls(self) -> None:
         """异步请求返回多个工具调用。"""
         llm = make_async_llm(

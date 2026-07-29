@@ -493,3 +493,43 @@ class TestLLMInit:
         llm = LLM(config)
         assert llm.config.model == "custom-model"
         assert llm.config.temperature == 0.5
+
+
+class TestModelResponseContract:
+    """测试模型响应契约：保留 finish_reason 和原始工具参数"""
+
+    def test_parse_response_payload_preserves_finish_reason_and_raw_arguments(self):
+        """解析响应负载时保留 finish_reason 和原始参数"""
+        response = parse_response_payload({
+            "choices": [{
+                "message": {"content": "use tool", "tool_calls": [{
+                    "id": "c1", "type": "function",
+                    "function": {"name": "lookup", "arguments": '{"q":"x"}'},
+                }]},
+                "finish_reason": "tool_calls",
+            }],
+        })
+        assert response.finish_reason == "tool_calls"
+        assert response.tool_calls[0].arguments == {"q": "x"}
+        assert response.tool_calls[0].raw_arguments == '{"q":"x"}'
+
+    @pytest.mark.parametrize("raw", ['{"q":', '[1, 2]'])
+    def test_invalid_tool_arguments_are_retained(self, raw):
+        """无效的工具参数被保留"""
+        response = parse_response_payload({
+            "choices": [{
+                "message": {"content": None, "tool_calls": [{
+                    "id": "c1", "type": "function",
+                    "function": {"name": "lookup", "arguments": raw},
+                }]},
+                "finish_reason": "tool_calls",
+            }],
+        })
+        call = response.tool_calls[0]
+        assert call.arguments is None
+        assert call.raw_arguments == raw
+        assert call.argument_error
+
+    def test_legacy_llm_response_constructor_remains_valid(self):
+        """遗留的 LLMResponse 构造函数保持有效"""
+        assert LLMResponse(content="ok", tool_calls=None).finish_reason == ""

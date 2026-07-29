@@ -443,7 +443,7 @@ class AsyncAgent:
                     "thought": turn.content or "",
                     "final_answer": clean,
                 })
-                self._call_hook("on_final", trace[-1])
+                self._call_hook("on_final", dict(trace[-1]))
                 self._commit_exchange(user_input, clean)
                 yield self._done_event(
                     content=clean,

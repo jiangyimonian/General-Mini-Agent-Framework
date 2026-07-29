@@ -2,8 +2,8 @@ from collections import deque
 
 import pytest
 
-from core.agent import AgentResult
-from core.debate import (
+from general_mini_agent.agent import AgentResult
+from general_mini_agent.debate import (
     Debate,
     DebateConfig,
     DebateRole,
@@ -288,25 +288,25 @@ def test_stream_runs_are_isolated_and_end_with_one_terminal_event() -> None:
 
 
 def test_core_exports_stable_debate_contracts() -> None:
-    from core import (
+    from general_mini_agent import (
         Debate as ExportedDebate,
     )
-    from core import (
+    from general_mini_agent import (
         DebateConfig as ExportedDebateConfig,
     )
-    from core import (
+    from general_mini_agent import (
         DebateResult as ExportedDebateResult,
     )
-    from core import (
+    from general_mini_agent import (
         DebateRole as ExportedDebateRole,
     )
-    from core import (
+    from general_mini_agent import (
         DebateRound as ExportedDebateRound,
     )
-    from core import (
+    from general_mini_agent import (
         DebateStreamEvent,
     )
-    from core import (
+    from general_mini_agent import (
         DebateTurn as ExportedDebateTurn,
     )
 

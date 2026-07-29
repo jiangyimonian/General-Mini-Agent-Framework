@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from core import tool
-from core.tools import ToolAuthorizationDecision, ToolAuthorizationRequest
+from general_mini_agent import tool
+from general_mini_agent.tools import ToolAuthorizationDecision, ToolAuthorizationRequest
 
 # ─────────────────────────────────────────────────────────────
 # 测试工具定义
@@ -57,7 +57,7 @@ class TestAsyncToolRegistryExecute:
 
     def test_async_callable_success(self) -> None:
         """异步 callable 正常执行并返回结构化结果。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         async def run():
             registry = AsyncToolRegistry([async_add])
@@ -70,7 +70,7 @@ class TestAsyncToolRegistryExecute:
 
     def test_sync_callable_via_to_thread(self) -> None:
         """同步 callable 通过 asyncio.to_thread 执行。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         async def run():
             registry = AsyncToolRegistry([sync_multiply])
@@ -82,7 +82,7 @@ class TestAsyncToolRegistryExecute:
 
     def test_unknown_tool_returns_error(self) -> None:
         """未知工具返回 unknown_tool 错误。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         async def run():
             registry = AsyncToolRegistry([])
@@ -94,7 +94,7 @@ class TestAsyncToolRegistryExecute:
 
     def test_invalid_arguments_returns_error(self) -> None:
         """无效参数返回 invalid_arguments 错误。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         async def run():
             registry = AsyncToolRegistry([async_add])
@@ -109,7 +109,7 @@ class TestAsyncToolTimeout:
 
     def test_async_tool_timeout_returns_error(self) -> None:
         """异步工具超过 deadline 返回 tool_timeout 错误。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         async def run():
             registry = AsyncToolRegistry([slow_tool], default_timeout=0.05)
@@ -121,7 +121,7 @@ class TestAsyncToolTimeout:
 
     def test_async_tool_completes_within_timeout(self) -> None:
         """异步工具在 timeout 前完成返回正常结果。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         async def run():
             registry = AsyncToolRegistry([slow_tool], default_timeout=1.0)
@@ -137,7 +137,7 @@ class TestAsyncToolCancellation:
 
     def test_cancellation_propagates_to_async_tool(self) -> None:
         """取消传播到正在执行的异步工具。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         started = False
 
@@ -165,7 +165,7 @@ class TestAsyncToolAuthorization:
 
     def test_authorization_deny_before_execution(self) -> None:
         """授权拒绝发生在工具执行前。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         class DenyAllPolicy:
             def authorize(
@@ -185,7 +185,7 @@ class TestAsyncToolAuthorization:
 
     def test_authorization_exception_returns_error(self) -> None:
         """授权策略异常返回 authorization_error。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         class FailingPolicy:
             def authorize(
@@ -211,7 +211,7 @@ class TestSyncToolCancellationLimitation:
         """同步工具 timeout 返回 tool_timeout 错误。"""
         import time
 
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         @tool
         def blocking_sync() -> str:
@@ -227,7 +227,7 @@ class TestSyncToolCancellationLimitation:
 
     def test_cancelled_wait_does_not_consume_result(self) -> None:
         """取消等待后不再消费结果（但后台线程可能继续）。"""
-        from core.async_tools import AsyncToolRegistry
+        from general_mini_agent.async_tools import AsyncToolRegistry
 
         completed = False
 
@@ -305,8 +305,8 @@ class TestAsyncAgentBasic:
 
     def test_direct_answer_returns_content(self) -> None:
         """直接回答返回内容。"""
-        from core.async_agent import AsyncAgent
-        from core.llm import LLMResponse
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
 
         llm = MockAsyncLLM([
             LLMResponse(content="Hello, world!", tool_calls=None, usage={"total_tokens": 5})
@@ -322,8 +322,8 @@ class TestAsyncAgentBasic:
 
     def test_two_tool_calls_in_sequence(self) -> None:
         """两次工具调用按顺序执行。"""
-        from core.async_agent import AsyncAgent
-        from core.llm import LLMResponse, ToolCall
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse, ToolCall
 
         call_order = []
 
@@ -360,8 +360,8 @@ class TestAsyncAgentBasic:
 
     def test_tool_timeout_allows_model_recovery(self) -> None:
         """工具 timeout 后模型可以继续推理。"""
-        from core.async_agent import AsyncAgent
-        from core.llm import LLMResponse, ToolCall
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse, ToolCall
 
         @tool
         async def slow_tool() -> str:
@@ -391,9 +391,9 @@ class TestAsyncAgentBasic:
 
     def test_cancellation_does_not_write_to_memory(self) -> None:
         """取消不写入会话记忆。"""
-        from core.async_agent import AsyncAgent
-        from core.llm import LLMResponse
-        from core.memory import InMemoryConversation
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
 
         # 使用一个会阻塞的 LLM
         class BlockingLLM:
@@ -428,9 +428,9 @@ class TestAsyncAgentBasic:
 
     def test_successful_run_writes_to_memory(self) -> None:
         """成功运行原子写入会话记忆。"""
-        from core.async_agent import AsyncAgent
-        from core.llm import LLMResponse
-        from core.memory import InMemoryConversation
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
 
         llm = MockAsyncLLM([
             LLMResponse(content="Hello!", tool_calls=None, usage={})
@@ -455,8 +455,8 @@ class TestAsyncAgentConcurrency:
 
     def test_concurrent_runs_do_not_share_state(self) -> None:
         """同一实例两个并发运行不共享 trace/messages。"""
-        from core.async_agent import AsyncAgent
-        from core.llm import LLMResponse
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
 
         # 每个实例独立的 LLM
         class InstanceMockLLM:

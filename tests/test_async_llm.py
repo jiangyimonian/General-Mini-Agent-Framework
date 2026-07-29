@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 import pytest
 
-from core import StreamChunk
-from core.llm import LLMConfig, LLMResponse, ModelRequestError
+from general_mini_agent import StreamChunk
+from general_mini_agent.llm import LLMConfig, LLMResponse, ModelRequestError
 
 
 def make_async_llm(
@@ -19,7 +19,7 @@ def make_async_llm(
     max_retries: int = 1,
 ):
     """创建使用 Mock transport 的 AsyncLLM 实例。"""
-    from core.async_llm import AsyncLLM
+    from general_mini_agent.async_llm import AsyncLLM
 
     def handler(request: httpx.Request) -> httpx.Response:
         if requests is not None:
@@ -45,7 +45,7 @@ class TestAsyncChatModelProtocol:
 
     def test_async_chat_model_requires_chat_async(self) -> None:
         """AsyncChatModel 必须提供 chat_async 方法。"""
-        from core.async_llm import AsyncChatModel
+        from general_mini_agent.async_llm import AsyncChatModel
 
         class MinimalAsyncModel:
             async def chat_async(
@@ -60,7 +60,7 @@ class TestAsyncChatModelProtocol:
 
     def test_async_streaming_chat_model_requires_stream_async(self) -> None:
         """AsyncStreamingChatModel 必须提供 chat_stream_async 方法。"""
-        from core.async_llm import AsyncStreamingChatModel
+        from general_mini_agent.async_llm import AsyncStreamingChatModel
 
         class MinimalStreamingModel:
             async def chat_async(
@@ -238,7 +238,7 @@ class TestAsyncLLMRetry:
 
     def test_chat_async_retries_retryable_http_error(self) -> None:
         """异步请求重试可重试的 HTTP 错误。"""
-        from core.async_llm import AsyncLLM
+        from general_mini_agent.async_llm import AsyncLLM
 
         calls = 0
 
@@ -272,7 +272,7 @@ class TestAsyncLLMRetry:
 
     def test_chat_async_raises_after_exhausted_retries(self) -> None:
         """异步请求重试耗尽后抛出错误。"""
-        from core.async_llm import AsyncLLM
+        from general_mini_agent.async_llm import AsyncLLM
 
         calls = 0
 
@@ -300,7 +300,7 @@ class TestAsyncLLMRetry:
 
     def test_chat_stream_async_retries_before_first_chunk(self) -> None:
         """异步流式请求在产生首块前重试。"""
-        from core.async_llm import AsyncLLM
+        from general_mini_agent.async_llm import AsyncLLM
 
         calls = 0
 
@@ -348,7 +348,7 @@ class TestAsyncLLMStreamRetry:
 
     def test_chat_stream_async_does_not_retry_after_yielding_output(self) -> None:
         """异步流式请求产生首块后不重试。"""
-        from core.async_llm import AsyncLLM
+        from general_mini_agent.async_llm import AsyncLLM
 
         calls = 0
 
@@ -389,7 +389,7 @@ class TestAsyncLLMCancellation:
 
     def test_chat_async_propagates_timeout_error(self) -> None:
         """异步请求传播超时错误。"""
-        from core.async_llm import AsyncLLM
+        from general_mini_agent.async_llm import AsyncLLM
 
         def handler(request: httpx.Request) -> httpx.Response:
             # 模拟超时
@@ -416,7 +416,7 @@ class TestAsyncLLMClientLifecycle:
 
     def test_async_llm_context_manager_closes_client(self) -> None:
         """异步上下文管理器关闭客户端。"""
-        from core.async_llm import AsyncLLM
+        from general_mini_agent.async_llm import AsyncLLM
 
         llm = AsyncLLM(LLMConfig(api_key="test-key"))
 
@@ -432,7 +432,7 @@ class TestAsyncLLMClientLifecycle:
 
     def test_aclose_closes_client(self) -> None:
         """aclose 方法关闭客户端。"""
-        from core.async_llm import AsyncLLM
+        from general_mini_agent.async_llm import AsyncLLM
 
         llm = AsyncLLM(LLMConfig(api_key="test-key"))
 

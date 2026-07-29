@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from core.tools import ToolRegistry, tool
+from general_mini_agent.tools import ToolRegistry, tool
 
 
 class TestToolRegistration:
@@ -254,11 +254,11 @@ class TestToolAuthorization:
 
         class DenyAll:
             def authorize(self, request: Any) -> Any:
-                from core.tools import ToolAuthorizationDecision
+                from general_mini_agent.tools import ToolAuthorizationDecision
 
                 return ToolAuthorizationDecision(allowed=False, reason="blocked")
 
-        from core.tools import ToolRegistry
+        from general_mini_agent.tools import ToolRegistry
 
         registry = ToolRegistry([dangerous], authorization_policy=DenyAll())
         result = registry.execute("dangerous", {})
@@ -279,7 +279,7 @@ class TestToolAuthorization:
             def authorize(self, request: Any) -> Any:
                 raise RuntimeError("policy failure")
 
-        from core.tools import ToolRegistry
+        from general_mini_agent.tools import ToolRegistry
 
         registry = ToolRegistry([safe], authorization_policy=BrokenPolicy())
         result = registry.execute("safe", {})
@@ -297,19 +297,19 @@ class TestToolAuthorization:
 
         class AllowPolicy:
             def authorize(self, request: Any) -> Any:
-                from core.tools import ToolAuthorizationDecision
+                from general_mini_agent.tools import ToolAuthorizationDecision
 
                 allowed_calls.append(request)
                 return ToolAuthorizationDecision(allowed=True)
 
         class DenyPolicy:
             def authorize(self, request: Any) -> Any:
-                from core.tools import ToolAuthorizationDecision
+                from general_mini_agent.tools import ToolAuthorizationDecision
 
                 denied_calls.append(request)
                 return ToolAuthorizationDecision(allowed=False)
 
-        from core.tools import ToolRegistry
+        from general_mini_agent.tools import ToolRegistry
 
         allow_registry = ToolRegistry([operation], authorization_policy=AllowPolicy())
         deny_registry = ToolRegistry([operation], authorization_policy=DenyPolicy())

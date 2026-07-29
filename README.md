@@ -1,35 +1,23 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`0.9.0`
-在 `0.8.0` 的可组合工作流节点之上，新增模型能力适配器、统一配置和安全日志，
-并引入 `general_mini_agent` 命名空间作为稳定公共入口。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.0.0`
+在 `0.9.0` 的模型能力适配、统一配置和安全日志之上，删除 `core` 命名空间，
+冻结公共 API。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 0.9.0 稳定能力
+## 1.0.0 稳定能力
 
-### 新增命名空间
+### 命名空间
 
-`general_mini_agent` 是推荐的稳定公共入口：
+`general_mini_agent` 是唯一的稳定公共入口：
 
 ```python
 from general_mini_agent import Agent, AsyncAgent, Workflow
 ```
 
-`core` 命名空间仍在 0.9.0 可用，但将在 1.0.0 删除。迁移步骤：
-
-```python
-# 旧导入（将在 1.0.0 删除）
-from core import Agent
-
-# 新导入
-from general_mini_agent import Agent
-```
-
-详见 [docs/MIGRATING.md](docs/MIGRATING.md)。
-
-### 模型能力适配器（0.9.0 新增）
+### 模型能力适配器
 
 `ProviderCapabilities` 自动检测模型服务商并适配差异：
 

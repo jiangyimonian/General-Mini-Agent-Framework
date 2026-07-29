@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from core.events import EventCollector, RunContext, RunEventEmitter
-from core.trace_json import TraceDocument, trace_from_json, trace_to_json
-from core.workflow import (
+from general_mini_agent.events import EventCollector, RunContext, RunEventEmitter
+from general_mini_agent.trace_json import TraceDocument, trace_from_json, trace_to_json
+from general_mini_agent.workflow import (
     NodeResult,
     Workflow,
     WorkflowResult,
@@ -289,7 +289,7 @@ class TestSequenceNode:
 
     async def test_sequence_passes_value_through_nodes(self) -> None:
         """串行节点传递值。"""
-        from core.workflow import SequenceNode
+        from general_mini_agent.workflow import SequenceNode
 
         collector = EventCollector()
 
@@ -321,7 +321,7 @@ class TestSequenceNode:
 
     async def test_sequence_stops_on_error(self) -> None:
         """串行节点在错误时停止。"""
-        from core.workflow import SequenceNode
+        from general_mini_agent.workflow import SequenceNode
 
         collector = EventCollector()
         call_order: list[str] = []
@@ -364,14 +364,14 @@ class TestSequenceNode:
 
     async def test_sequence_requires_at_least_one_node(self) -> None:
         """串行节点需要至少一个节点。"""
-        from core.workflow import SequenceNode
+        from general_mini_agent.workflow import SequenceNode
 
         with pytest.raises(ValueError, match="at least one node"):
             SequenceNode([])
 
     async def test_sequence_child_context_has_correct_parent(self) -> None:
         """串行子节点有正确的父级。"""
-        from core.workflow import SequenceNode
+        from general_mini_agent.workflow import SequenceNode
 
         collector = EventCollector()
         captured_contexts: list[RunContext] = []
@@ -405,7 +405,7 @@ class TestParallelNode:
         """并行节点限制最大并发数。"""
         import asyncio
 
-        from core.workflow import ParallelNode
+        from general_mini_agent.workflow import ParallelNode
 
         collector = EventCollector()
         concurrent_count = 0
@@ -447,7 +447,7 @@ class TestParallelNode:
         import asyncio
         import random
 
-        from core.workflow import ParallelNode
+        from general_mini_agent.workflow import ParallelNode
 
         collector = EventCollector()
 
@@ -481,7 +481,7 @@ class TestParallelNode:
         """并行节点 collect_errors 策略等待所有节点完成。"""
         import asyncio
 
-        from core.workflow import ParallelNode
+        from general_mini_agent.workflow import ParallelNode
 
         collector = EventCollector()
         completed_count = 0
@@ -532,7 +532,7 @@ class TestParallelNode:
 
     async def test_parallel_requires_valid_params(self) -> None:
         """并行节点参数校验。"""
-        from core.workflow import ParallelNode
+        from general_mini_agent.workflow import ParallelNode
 
         @dataclass
         class DummyNode:
@@ -562,7 +562,7 @@ class TestConditionalNode:
 
     async def test_conditional_selects_true_branch(self) -> None:
         """条件节点选择 true 分支。"""
-        from core.workflow import ConditionalNode
+        from general_mini_agent.workflow import ConditionalNode
 
         collector = EventCollector()
 
@@ -593,7 +593,7 @@ class TestConditionalNode:
 
     async def test_conditional_selects_false_branch(self) -> None:
         """条件节点选择 false 分支。"""
-        from core.workflow import ConditionalNode
+        from general_mini_agent.workflow import ConditionalNode
 
         collector = EventCollector()
 
@@ -624,7 +624,7 @@ class TestConditionalNode:
 
     async def test_conditional_predicate_error_returns_node_error(self) -> None:
         """predicate 异常返回 node_error。"""
-        from core.workflow import ConditionalNode
+        from general_mini_agent.workflow import ConditionalNode
 
         collector = EventCollector()
 
@@ -658,7 +658,7 @@ class TestConditionalNode:
 
     async def test_conditional_does_not_execute_both_branches(self) -> None:
         """条件节点不执行两个分支。"""
-        from core.workflow import ConditionalNode
+        from general_mini_agent.workflow import ConditionalNode
 
         collector = EventCollector()
         executed: list[str] = []
@@ -691,7 +691,7 @@ class TestConditionalNode:
 
     async def test_conditional_defensive_copy(self) -> None:
         """条件节点防御性复制可变输入。"""
-        from core.workflow import ConditionalNode
+        from general_mini_agent.workflow import ConditionalNode
 
         collector = EventCollector()
         received_values: list[dict[str, Any]] = []
@@ -733,8 +733,8 @@ class TestWorkflowAdapters:
 
     async def test_agent_node_converts_result(self) -> None:
         """AgentNode 转换结果。"""
-        from core.agent import Agent
-        from core.workflow_adapters import AgentNode
+        from general_mini_agent.agent import Agent
+        from general_mini_agent.workflow_adapters import AgentNode
         from demo.scripted_models import ScriptedChatModel, agent_with_tool_response
 
         collector = EventCollector()
@@ -751,8 +751,8 @@ class TestWorkflowAdapters:
 
     async def test_agent_node_rejects_non_string_input(self) -> None:
         """AgentNode 拒绝非字符串输入。"""
-        from core.agent import Agent
-        from core.workflow_adapters import AgentNode
+        from general_mini_agent.agent import Agent
+        from general_mini_agent.workflow_adapters import AgentNode
         from demo.scripted_models import ScriptedChatModel
 
         collector = EventCollector()
@@ -769,9 +769,9 @@ class TestWorkflowAdapters:
 
     async def test_debate_node_converts_verdict(self) -> None:
         """DebateNode 转换 verdict。"""
-        from core.agent import Agent
-        from core.debate import create_debate
-        from core.workflow_adapters import DebateNode
+        from general_mini_agent.agent import Agent
+        from general_mini_agent.debate import create_debate
+        from general_mini_agent.workflow_adapters import DebateNode
         from demo.scripted_models import ScriptedChatModel, debate_responses
 
         collector = EventCollector()
@@ -802,9 +802,9 @@ class TestWorkflowAdapters:
 
     async def test_debate_node_rejects_non_string_input(self) -> None:
         """DebateNode 拒绝非字符串输入。"""
-        from core.agent import Agent
-        from core.debate import create_debate
-        from core.workflow_adapters import DebateNode
+        from general_mini_agent.agent import Agent
+        from general_mini_agent.debate import create_debate
+        from general_mini_agent.workflow_adapters import DebateNode
         from demo.scripted_models import ScriptedChatModel
 
         collector = EventCollector()

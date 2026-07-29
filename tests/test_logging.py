@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from core.logging import get_logger, safe_log_fields
+from general_mini_agent.logging import get_logger, safe_log_fields
 
 
 class TestGetLogger:

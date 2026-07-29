@@ -7,17 +7,17 @@ from unittest.mock import Mock
 import pytest
 from conftest import ScriptedChatModel, ScriptedStreamingChatModel
 
-from core.agent import Agent
-from core.context import ContextBudgetExceeded
-from core.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
-from core.long_term_memory import (
+from general_mini_agent.agent import Agent
+from general_mini_agent.context import ContextBudgetExceeded
+from general_mini_agent.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
+from general_mini_agent.long_term_memory import (
     MemoryNamespace,
     MemoryQuery,
     MemoryStoreError,
     create_memory_record,
 )
-from core.memory import InMemoryConversation
-from core.tools import Tool, tool
+from general_mini_agent.memory import InMemoryConversation
+from general_mini_agent.tools import Tool, tool
 
 
 class RecordingContextPolicy:
@@ -741,7 +741,7 @@ def test_second_model_call_receives_tool_result() -> None:
 
 
 def test_agent_config_is_exported_from_core() -> None:
-    from core import AgentConfig
+    from general_mini_agent import AgentConfig
 
     assert AgentConfig().max_iterations == 10
 
@@ -1123,7 +1123,7 @@ class TestAgentToolAuthorization:
 
         class DenyPolicy:
             def authorize(self, request: Any) -> Any:
-                from core.tools import ToolAuthorizationDecision
+                from general_mini_agent.tools import ToolAuthorizationDecision
 
                 return ToolAuthorizationDecision(allowed=False, reason="blocked")
 

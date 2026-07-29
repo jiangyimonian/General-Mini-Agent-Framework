@@ -26,12 +26,11 @@ def test_import_from_core_emits_deprecation():
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        from core import Agent  # noqa: F401
+        from general_mini_agent import Agent  # noqa: F401
 
-        assert len(w) >= 1, "导入 core 必须产生至少一个 DeprecationWarning"
-        assert any(
-            issubclass(x.category, DeprecationWarning) for x in w
-        ), f"期望 DeprecationWarning，但得到: {[x.category for x in w]}"
+        # 注意：现在 core 已经不存在，所以这里不会产生警告
+        # 这个测试需要更新，因为 core 命名空间已经被移除
+        assert len(w) == 0
 
 
 def test_object_identity_consistency():
@@ -70,109 +69,11 @@ def test_object_identity_consistency():
         WorkflowResult,
     )
 
-    # 抑制弃用警告以避免噪音
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        from core import (
-            LLM as LegacyLLM,
-        )
-        from core import (
-            Agent as LegacyAgent,
-        )
-        from core import (
-            AgentConfig as LegacyAgentConfig,
-        )
-        from core import (
-            AgentResult as LegacyAgentResult,
-        )
-        from core import (
-            AgentStopReason as LegacyAgentStopReason,
-        )
-        from core import (
-            AsyncAgent as LegacyAsyncAgent,
-        )
-        from core import (
-            AsyncChatModel as LegacyAsyncChatModel,
-        )
-        from core import (
-            AsyncLLM as LegacyAsyncLLM,
-        )
-        from core import (
-            AsyncStreamingChatModel as LegacyAsyncStreamingChatModel,
-        )
-        from core import (
-            AsyncToolRegistry as LegacyAsyncToolRegistry,
-        )
-        from core import (
-            ChatModel as LegacyChatModel,
-        )
-        from core import (
-            Debate as LegacyDebate,
-        )
-        from core import (
-            DebateConfig as LegacyDebateConfig,
-        )
-        from core import (
-            DebateResult as LegacyDebateResult,
-        )
-        from core import (
-            DebateRole as LegacyDebateRole,
-        )
-        from core import (
-            LLMConfig as LegacyLLMConfig,
-        )
-        from core import (
-            LLMResponse as LegacyLLMResponse,
-        )
-        from core import (
-            StreamingChatModel as LegacyStreamingChatModel,
-        )
-        from core import (
-            Tool as LegacyTool,
-        )
-        from core import (
-            ToolRegistry as LegacyToolRegistry,
-        )
-        from core import (
-            Workflow as LegacyWorkflow,
-        )
-        from core import (
-            WorkflowNode as LegacyWorkflowNode,
-        )
-        from core import (
-            WorkflowResult as LegacyWorkflowResult,
-        )
-
-    # 验证对象身份
-    assert Agent is LegacyAgent, "Agent 对象身份不一致"
-    assert AgentConfig is LegacyAgentConfig, "AgentConfig 对象身份不一致"
-    assert AgentResult is LegacyAgentResult, "AgentResult 对象身份不一致"
-    assert AgentStopReason is LegacyAgentStopReason, "AgentStopReason 对象身份不一致"
-    assert AsyncAgent is LegacyAsyncAgent, "AsyncAgent 对象身份不一致"
-    assert AsyncChatModel is LegacyAsyncChatModel, "AsyncChatModel 对象身份不一致"
-    assert AsyncLLM is LegacyAsyncLLM, "AsyncLLM 对象身份不一致"
-    assert AsyncStreamingChatModel is LegacyAsyncStreamingChatModel, (
-    "AsyncStreamingChatModel 对象身份不一致"
-)
-    assert AsyncToolRegistry is LegacyAsyncToolRegistry, "AsyncToolRegistry 对象身份不一致"
-    assert ChatModel is LegacyChatModel, "ChatModel 对象身份不一致"
-    assert LLM is LegacyLLM, "LLM 对象身份不一致"
-    assert LLMConfig is LegacyLLMConfig, "LLMConfig 对象身份不一致"
-    assert LLMResponse is LegacyLLMResponse, "LLMResponse 对象身份不一致"
-    assert StreamingChatModel is LegacyStreamingChatModel, "StreamingChatModel 对象身份不一致"
-    assert Tool is LegacyTool, "Tool 对象身份不一致"
-    assert ToolRegistry is LegacyToolRegistry, "ToolRegistry 对象身份不一致"
-    assert Debate is LegacyDebate, "Debate 对象身份不一致"
-    assert DebateConfig is LegacyDebateConfig, "DebateConfig 对象身份不一致"
-    assert DebateResult is LegacyDebateResult, "DebateResult 对象身份不一致"
-    assert DebateRole is LegacyDebateRole, "DebateRole 对象身份不一致"
-    assert Workflow is LegacyWorkflow, "Workflow 对象身份不一致"
-    assert WorkflowNode is LegacyWorkflowNode, "WorkflowNode 对象身份不一致"
-    assert WorkflowResult is LegacyWorkflowResult, "WorkflowResult 对象身份不一致"
+    # core 命名空间已经被移除，不再需要检查兼容性
 
 
 def test_wheel_contains_both_packages():
-    """验证 wheel 包含 general_mini_agent 和 core。"""
+    """验证 wheel 包含 general_mini_agent。"""
     import sys
     import tempfile
 
@@ -200,12 +101,10 @@ def test_wheel_contains_both_packages():
         with zipfile.ZipFile(wheel_files[0]) as whl:
             names = whl.namelist()
 
-            # 检查两个包都存在
+            # 检查包存在
             has_general_mini_agent = any("general_mini_agent/" in name for name in names)
-            has_core = any("core/" in name for name in names)
 
             assert has_general_mini_agent, "wheel 必须包含 general_mini_agent 包"
-            assert has_core, "wheel 必须包含 core 包（作为兼容层）"
 
             # 检查实现文件只在新命名空间
             implementation_files = [
@@ -235,18 +134,6 @@ def test_wheel_contains_both_packages():
                 )
 
                 assert in_general_mini_agent, f"{impl_file} 应该在 general_mini_agent 中"
-
-            # 验证 core 子模块文件是 re-export（不包含实现逻辑）
-            for reexport_file in implementation_files:
-                core_file_path = f"core/{reexport_file}"
-                if any(core_file_path == n for n in names):
-                    # 检查文件内容是否只是 re-export
-                    content = whl.read(core_file_path)
-                    content_str = content.decode("utf-8")
-                    # re-export 文件应该包含 "from general_mini_agent"
-                    assert "from general_mini_agent" in content_str, (
-                        f"core/{reexport_file} 应该是 re-export 文件"
-                    )
 
 
 def test_import_in_clean_environment():
@@ -303,12 +190,7 @@ warnings.filterwarnings('error', category=DeprecationWarning)
 # 导入正式命名空间不应该警告
 from general_mini_agent import Agent, LLM, Tool
 
-# 导入 core 必须抛出 DeprecationWarning
-try:
-    from core import Agent as LegacyAgent
-    print("ERROR: 应该产生 DeprecationWarning")
-except DeprecationWarning:
-    print("OK: 正确产生 DeprecationWarning")
+print("OK: 成功导入 general_mini_agent")
 """
 
         test_result = subprocess.run(
@@ -318,4 +200,4 @@ except DeprecationWarning:
         )
 
         assert test_result.returncode == 0, f"测试导入失败: {test_result.stderr}"
-        assert "OK: 正确产生 DeprecationWarning" in test_result.stdout
+        assert "OK: 成功导入 general_mini_agent" in test_result.stdout

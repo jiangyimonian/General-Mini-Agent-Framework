@@ -2,9 +2,9 @@
 
 from datetime import UTC, datetime
 
-from core.events import RunEvent
-from core.trace import trace_to_html
-from core.trace_json import TraceDocument
+from general_mini_agent.events import RunEvent
+from general_mini_agent.trace import trace_to_html
+from general_mini_agent.trace_json import TraceDocument
 
 
 class TestTraceDocumentToHtml:
@@ -107,7 +107,7 @@ class TestTraceComparison:
 
     def test_compare_traces_shows_usage_diff(self) -> None:
         """对比显示 usage 差异。"""
-        from core.trace import compare_traces_to_html
+        from general_mini_agent.trace import compare_traces_to_html
 
         # Baseline: 100 tokens
         events1 = (
@@ -146,7 +146,7 @@ class TestTraceComparison:
 
     def test_compare_rejects_different_schema(self) -> None:
         """拒绝不同 schema version。"""
-        from core.trace import compare_traces_to_html
+        from general_mini_agent.trace import compare_traces_to_html
 
         events = (
             RunEvent(
@@ -173,7 +173,7 @@ class TestTraceComparison:
 
     def test_compare_shows_missing_as_unavailable(self) -> None:
         """缺失数据显示为不可用。"""
-        from core.trace import compare_traces_to_html
+        from general_mini_agent.trace import compare_traces_to_html
 
         # Baseline: 有 usage
         events1 = (
@@ -312,7 +312,7 @@ class TestHtmlSecurity:
 def test_render_html_preserves_stat_labels_without_literal_backslashes() -> None:
     from types import SimpleNamespace
 
-    from core.trace import render_html
+    from general_mini_agent.trace import render_html
 
     html = render_html(
         SimpleNamespace(content="answer", iterations=1, trace=[], usage={}),
@@ -327,7 +327,7 @@ def test_render_html_preserves_stat_labels_without_literal_backslashes() -> None
 def test_debate_to_html_preserves_stat_labels_without_literal_backslashes() -> None:
     from types import SimpleNamespace
 
-    from core.trace import debate_to_html
+    from general_mini_agent.trace import debate_to_html
 
     html = debate_to_html(
         SimpleNamespace(verdict="verdict", rounds=[], total_usage={}),
@@ -340,8 +340,8 @@ def test_debate_to_html_preserves_stat_labels_without_literal_backslashes() -> N
 
 
 def test_debate_to_html_serializes_typed_rounds_and_judge() -> None:
-    from core.debate import DebateResult, DebateRound, DebateTurn
-    from core.trace import debate_to_html
+    from general_mini_agent.debate import DebateResult, DebateRound, DebateTurn
+    from general_mini_agent.trace import debate_to_html
 
     participant = DebateTurn(role="Solver", content="proposal")
     judge = DebateTurn(role="Judge", content="final verdict")

@@ -5,6 +5,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.0] - 2026-07-29
+
+### 变更
+
+- 删除 `core` 命名空间，仅保留 `general_mini_agent`
+- 所有测试和文档更新为使用新命名空间
+- 版本号更新为 1.0.0，公共 API 冻结
+
+### 迁移说明
+
+从 0.9.0 升级：将 `from core import X` 替换为 `from general_mini_agent import X`。
+
 ## [0.9.0] - 2026-07-28
 
 ### 新增

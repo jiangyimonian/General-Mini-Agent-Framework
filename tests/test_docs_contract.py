@@ -8,7 +8,7 @@ import pytest
 def test_readme_publishes_stable_multi_agent_scope() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "0.9.0 稳定能力" in readme
+    assert "1.0.0 稳定能力" in readme
     assert "单 Agent 同步工具调用" in readme
     assert "OpenAI 兼容" in readme
     assert "Agent.run_stream()" in readme
@@ -37,7 +37,7 @@ def test_readme_documents_async_limitations() -> None:
 
 
 def test_core_exports_stable_streaming_contracts() -> None:
-    from core import StreamChunk, StreamEvent, StreamingChatModel, ToolCallDelta
+    from general_mini_agent import StreamChunk, StreamEvent, StreamingChatModel, ToolCallDelta
 
     assert StreamChunk is not None
     assert StreamEvent is not None
@@ -46,7 +46,7 @@ def test_core_exports_stable_streaming_contracts() -> None:
 
 
 def test_core_exports_stable_context_and_memory_contracts() -> None:
-    from core import (
+    from general_mini_agent import (
         ApproximateTokenCounter,
         ChromaMemoryStore,
         ContextBudgetExceeded,
@@ -88,14 +88,14 @@ def test_core_exports_stable_context_and_memory_contracts() -> None:
 
 
 def test_core_exports_stable_tool_contracts() -> None:
-    from core import (
+    from general_mini_agent import (
         JSONValue,
         ToolAuthorizationDecision,
         ToolAuthorizationPolicy,
         ToolAuthorizationRequest,
         ToolExecutionResult,
     )
-    from core.tools import JSONValue as ToolJSONValue
+    from general_mini_agent.tools import JSONValue as ToolJSONValue
 
     assert JSONValue is ToolJSONValue
     assert ToolAuthorizationDecision is not None
@@ -106,7 +106,7 @@ def test_core_exports_stable_tool_contracts() -> None:
 
 def test_core_exports_stable_async_contracts() -> None:
     """测试异步符号导出。"""
-    from core import (
+    from general_mini_agent import (
         AsyncAgent,
         AsyncChatModel,
         AsyncLLM,
@@ -123,7 +123,7 @@ def test_core_exports_stable_async_contracts() -> None:
 
 def test_core_exports_stable_event_contracts() -> None:
     """测试事件符号导出。"""
-    from core import (
+    from general_mini_agent import (
         EventCollector,
         EventSink,
         RunContext,
@@ -140,7 +140,7 @@ def test_core_exports_stable_event_contracts() -> None:
 
 def test_core_exports_stable_trace_json_contracts() -> None:
     """测试 JSON trace 符号导出。"""
-    from core import (
+    from general_mini_agent import (
         TraceDocument,
         export_trace_json,
         trace_from_json,
@@ -154,8 +154,8 @@ def test_core_exports_stable_trace_json_contracts() -> None:
 
 
 def test_core_exports_stable_trace_html_contracts() -> None:
-    import core
-    from core import (
+    import general_mini_agent
+    from general_mini_agent import (
         compare_traces_to_html,
         debate_to_html,
         export_trace,
@@ -172,7 +172,7 @@ def test_core_exports_stable_trace_html_contracts() -> None:
         "render_html",
         "trace_to_html",
     }
-    assert expected_exports <= set(core.__all__)
+    assert expected_exports <= set(general_mini_agent.__all__)
     assert export_trace is export_trace_html
     assert all(
         (
@@ -187,7 +187,7 @@ def test_core_exports_stable_trace_html_contracts() -> None:
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "0.9.0"',)),
+        ("pyproject.toml", ('version = "1.0.0"',)),
         ("README.md", ("显式检索", "不会自动写入")),
         (
             "demo/long_term_memory.py",

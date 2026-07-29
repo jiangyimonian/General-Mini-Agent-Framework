@@ -7,9 +7,9 @@ from unittest.mock import Mock
 import httpx
 import pytest
 
-import core.llm as llm_module
-from core import StreamChunk, StreamingChatModel, ToolCallDelta
-from core.llm import (
+import general_mini_agent.llm as llm_module
+from general_mini_agent import StreamChunk, StreamingChatModel, ToolCallDelta
+from general_mini_agent.llm import (
     LLM,
     LLMConfig,
     LLMResponse,

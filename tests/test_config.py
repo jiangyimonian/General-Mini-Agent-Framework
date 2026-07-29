@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.config import FrameworkConfig
+from general_mini_agent.config import FrameworkConfig
 
 
 class TestFrameworkConfigPriority:

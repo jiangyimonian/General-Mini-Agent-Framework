@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from core.providers import (
+from general_mini_agent.providers import (
     DeepSeekAdapter,
     ModelCapabilityError,
     OpenAICompatibleAdapter,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.memory import InMemoryConversation, SlidingWindowMemory
+from general_mini_agent.memory import InMemoryConversation, SlidingWindowMemory
 
 
 class TestInMemoryConversation:

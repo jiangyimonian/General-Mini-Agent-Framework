@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from core.events import (
+from general_mini_agent.events import (
     EventCollector,
     RunContext,
     RunEvent,
@@ -242,7 +242,7 @@ class TestTraceDocument:
 
     def test_trace_document_roundtrip(self) -> None:
         """TraceDocument 可以往返 JSON。"""
-        from core.trace_json import TraceDocument, trace_from_json, trace_to_json
+        from general_mini_agent.trace_json import TraceDocument, trace_from_json, trace_to_json
 
         collector = EventCollector()
         emitter = RunEventEmitter(sink=collector)
@@ -265,7 +265,7 @@ class TestTraceDocument:
 
     def test_json_export_is_deterministic(self) -> None:
         """JSON 导出是确定性的。"""
-        from core.trace_json import TraceDocument, trace_to_json
+        from general_mini_agent.trace_json import TraceDocument, trace_to_json
 
         collector = EventCollector()
         emitter = RunEventEmitter(sink=collector)
@@ -283,7 +283,7 @@ class TestTraceDocument:
 
     def test_reject_unknown_schema_version(self) -> None:
         """拒绝未知 schema version。"""
-        from core.trace_json import trace_from_json
+        from general_mini_agent.trace_json import trace_from_json
 
         json_str = '{"schema_version": 99, "root_run_id": "test", "events": []}'
         with pytest.raises(ValueError, match="schema_version"):
@@ -291,7 +291,7 @@ class TestTraceDocument:
 
     def test_reject_negative_elapsed(self) -> None:
         """拒绝负 elapsed_ms。"""
-        from core.trace_json import TraceDocument, trace_to_json
+        from general_mini_agent.trace_json import TraceDocument, trace_to_json
 
         event = RunEvent(
             run_id="test",
@@ -308,8 +308,8 @@ class TestTraceDocument:
 
     def test_json_export_sanitizes_model_error(self) -> None:
         """模型错误导出不包含敏感信息。"""
-        from core.llm import ModelRequestError
-        from core.trace_json import TraceDocument, trace_to_json
+        from general_mini_agent.llm import ModelRequestError
+        from general_mini_agent.trace_json import TraceDocument, trace_to_json
 
         # 创建包含敏感信息的模型错误
         error = ModelRequestError(

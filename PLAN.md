@@ -2,9 +2,8 @@
 
 ## 项目目标
 
-General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`0.9.0`
-在 `0.8.0` 的可组合工作流节点之上，新增模型能力适配器、统一配置和安全日志，
-并引入 `general_mini_agent` 命名空间作为稳定公共入口。
+General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础组件。`1.0.0`
+删除 `core` 命名空间，冻结公共 API，仅保留 `general_mini_agent` 作为稳定入口。
 
 ## 设计原则
 
@@ -15,19 +14,13 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 5. **失败可观察**：停止原因、工具错误和模型请求错误必须可定位且不得泄露密钥。
 6. **行为优先于抽象**：只有出现真实复用需求时才增加新的协议和编排层。
 
-## 0.9.0 稳定边界
+## 1.0.0 稳定边界
 
-`0.9.0` 包含并保持 `0.8.0` 的全部同步、流式、异步、事件、trace 和工作流契约，
-新增模型能力适配、统一配置和安全日志。
+`1.0.0` 包含并保持 `0.9.0` 的全部同步、流式、异步、事件、trace 和工作流契约。
 
 ### `general_mini_agent/__init__.py`
 
-稳定公共 API 入口，导出所有公共组件：
-
-- 所有 `core/__init__.py` 导出的稳定组件
-- 兼容导出：确保 `from general_mini_agent import X` 与 `from core import X` 指向同一对象
-
-`general_mini_agent` 是推荐的稳定命名空间，`core` 在 0.9.0 弃用，将在 1.0.0 删除。
+唯一稳定公共 API 入口，导出所有公共组件。
 
 ### `general_mini_agent/providers.py`
 
@@ -37,8 +30,6 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 - 适配工具调用的 JSON Schema 差异
 - 适配流式响应的 chunk 结构差异
 - 提供统一的工具调用和响应接口
-
-适配器隐藏服务商差异，框架其他部分使用统一接口。
 
 ### `general_mini_agent/config.py`
 
@@ -56,13 +47,7 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 - 提供 `get_logger()` 工厂函数
 - 兼容标准 logging 模块
 
-日志不记录完整请求体或响应体，不持有密钥明文。
-
-### 继承自 0.8.0 的模块
-
-`0.9.0` 包含并保持 `0.8.0` 的全部模块和契约。
-
-### `core/events.py`
+### `general_mini_agent/events.py`
 
 负责运行上下文与事件 envelope：
 
@@ -72,10 +57,7 @@ General Mini Agent Framework 提供结构清晰、边界明确的 Agent 基础�
 - `EventCollector` 内存收集器，线程安全，支持不可变快照
 - `RunEventEmitter` 事件发射器，管理序号和时钟，支持父子关系
 
-事件层不拥有业务状态，只在状态变化边界发出事件。序号从 1 严格递增，耗时来自
-monotonic clock。sink 异常原样传播，不转换为模型错误。
-
-### `core/workflow.py`
+### `general_mini_agent/workflow.py`
 
 负责可组合的工作流节点：
 
@@ -86,11 +68,7 @@ monotonic clock。sink 异常原样传播，不转换为模型错误。
 - `ParallelNode` 并行节点，有限并发执行，结果按声明顺序排列
 - `ConditionalNode` 条件节点，根据 predicate 选择分支
 
-工作流实例不保存运行结果，重复/并发运行完全隔离。并行节点有正整数并发上限，
-支持 `fail_fast` 和 `collect_errors` 两种错误策略。`CancelledError` 原样传播，
-其他异常转换为脱敏 `node_error`。节点值必须是合法 JSON 值。
-
-### `core/workflow_adapters.py`
+### `general_mini_agent/workflow_adapters.py`
 
 负责 Agent 和 Debate 到工作流节点的适配：
 
@@ -98,10 +76,7 @@ monotonic clock。sink 异常原样传播，不转换为模型错误。
 - `AsyncAgentNode` 包装 `AsyncAgent`，要求字符串输入
 - `DebateNode` 包装 `Debate`，要求字符串输入
 
-适配器将 `AgentResult` 和 `DebateResult` 转换为 `NodeResult`，非字符串输入返回
-`invalid_node_input` 错误码。
-
-### `core/trace_json.py`
+### `general_mini_agent/trace_json.py`
 
 负责版本化 JSON trace 导出和导入：
 
@@ -110,136 +85,67 @@ monotonic clock。sink 异常原样传播，不转换为模型错误。
 - `trace_from_json()` 从 JSON 字符串导入，严格校验
 - `export_trace_json()` 导出到文件，UTF-8 编码
 
-JSON 使用 `ensure_ascii=False`、`sort_keys=True`、`allow_nan=False`。导入只接受
-`schema_version == 1`，拒绝非法结构。模型错误已脱敏，不包含认证头或 API Key。
-
-### 继承自 0.6.0 的模块
-
-`0.5.0` 包含并保持 `0.4.1` 的全部模型、工具、Agent、上下文和记忆契约。
-
-### `core/context.py`
+### `general_mini_agent/context.py`
 
 负责构造发送给模型的受限上下文视图：
 
 - `TokenCounter` 允许替换默认近似估算器
 - `TokenBudgetContext` 要求显式配置上下文窗口和输出预留
 - 系统提示词、当前轮次和上一完整轮次不可被普通裁剪移除
-- 对话轮次以及 assistant tool call 与 tool result 不会被拆分
-- 每次模型请求都重新计算消息和工具 Schema
-- `SummarizingContext` 使用调用方显式提供的摘要函数，失败时回退到确定性裁剪
 
-上下文策略不修改 Agent 工作消息或会话存储。默认估算器不绑定模型厂商，也不宣称
-与服务商 tokenizer 精确一致。
-
-### `core/llm.py`
+### `general_mini_agent/llm.py`
 
 负责模型服务通信和协议转换：
 
 - 配置模型地址、密钥、模型名称、超时和重试
 - 发送同步 Chat Completions 请求
 - 解析 OpenAI 兼容 SSE 流、usage-only payload 和多个工具调用片段
-- 解析文本、工具调用和 Token 用量
-- 将请求和流式协议错误转换为脱敏的 `ModelRequestError`
 
-模型客户端不执行工具，也不管理 Agent 状态。`ChatModel` 保持同步调用契约，
-`StreamingChatModel` 额外定义 `chat_stream()`。
-
-### `core/tools.py`
+### `general_mini_agent/tools.py`
 
 负责 Python 函数与模型工具协议之间的转换：
 
 - 使用 `@tool` 附加工具元数据
 - 根据函数签名生成 JSON Schema
 - 通过 `ToolRegistry` 提供实例级注册和查询
-- 校验参数并返回结构化工具执行结果
-- 结构化结果保留合法 JSON 值，确定性序列化为 `content`
-- 授权策略在参数绑定后、工具执行前完成检查
 
-`ToolExecutionResult.value` 保留合法 JSON 值（`dict`、`list`、`int`、`float`、
-`bool`、`None`），`content` 使用紧凑确定性 JSON。字符串结果保持原样。
-非法 JSON 值返回 `serialization_failed`。
-
-`ToolAuthorizationPolicy` 协议定义 `authorize(request)` 方法。策略拒绝返回
-`permission_denied`，策略异常返回 `authorization_error`，两者均为 fail-closed。
-未知工具和无效参数不触发授权检查。
-
-工具模块不决定调用时机，不使用进程级可变注册表。
-
-### `core/agent.py`
+### `general_mini_agent/agent.py`
 
 负责单 Agent 同步和流式执行循环：
 
-```text
-构建请求上下文
-  -> 请求模型
-  -> 执行工具或返回最终答案
-  -> 记录结构化轨迹
-  -> 返回 AgentResult
-```
+- `Agent.run()` 同步控制循环
+- `Agent.run_stream()` 流式事件生成器
 
-`Agent.run()` 保留 `0.1.0` 同步控制循环；`Agent.run_stream()` 使用独立流式控制循环。
-两条路径只共享工具注册执行、usage 累计、trace 和 hook 等有边界的 helper，不互相重写。
+### `general_mini_agent/memory.py`
 
-流式路径稳定支持七种 `StreamEvent`、五种停止原因、按 index 聚合的多工具调用、
-非法参数修正、协议错误终止和每次请求一次的 usage 累计。
+`ConversationMemory` 定义快照读取、批量追加和清空契约。
 
-`0.3.0` 增加 `context_budget_exceeded` 停止原因。配置 `context_policy` 后，同步和流式
-循环都在每次模型请求前生成预算视图。配置可写 `ConversationMemory` 后，只有成功完成
-才原子写入用户输入和最终回复；其他终态和未完整消费的流均不写入。
+### `general_mini_agent/long_term_memory.py`
 
-### `core/memory.py`
+定义稳定的长期记忆契约：
 
-`ConversationMemory` 定义快照读取、批量追加和清空契约。`InMemoryConversation` 对输入与
-输出执行深复制，先校验整个批次再写入，并保持实例状态隔离。上下文裁剪属于
-`core/context.py`，不会破坏存储中的完整会话历史。
+- `MemoryNamespace`、`MemoryRecord`、`MemoryQuery`
+- `LongTermMemoryStore` 协议
+- `InMemoryLongTermStore` 离线实现
+- `ChromaMemoryStore` ChromaDB 持久化
 
-### `core/long_term_memory.py`
-
-定义稳定的 `MemoryNamespace`、`MemoryRecord`、`MemoryQuery` 和 `LongTermMemoryStore`
-契约。默认读写使用 `user_id + conversation_id + agent_id` 完整命名空间，宽作用域只允许
-显式查询和清理，更新与删除始终要求记录 ID 和完整归属命名空间。
-
-`InMemoryLongTermStore` 提供确定性的离线实现；`ChromaMemoryStore` 延迟加载可选依赖，
-并负责 Embedding、索引和持久化。Agent 只在调用方传入 `memory_query` 时检索一次，不会
-自动写入。检索失败在模型访问前映射为 `memory_error`，检索文本作为有界历史参考数据，
-不能替代系统规则。
-
-### `core/debate.py`
+### `general_mini_agent/debate.py`
 
 负责多 Agent 同步和流式协作：
 
-- 参与者按配置顺序完成每一轮，Judge 与普通参与者分离
-- `max_rounds` 限制真实参与轮次，显式回调只在完整轮次后判断收敛
-- 收敛或轮次耗尽后只调用一次 Judge
-- 每次运行创建独立上下文、轮次记录和 usage 统计
-- 非 `completed` 角色结果在确定边界停止后续角色
-- 同步和流式路径保持相同的角色顺序、收敛转换和停止语义
-
-`Debate` 不直接调用模型客户端或执行工具，也不自动访问长期记忆。`0.4.1` 不提供并行、
-投票、动态角色、异步接口或通用工作流图。
+- 参与者按配置顺序完成每一轮
+- Judge 与普通参与者分离
+- `max_rounds` 限制真实参与轮次
 
 ## 实验性模块
 
-以下能力保留用于实验，不属于 `0.8.0` 稳定 API：
+以下能力保留用于实验，不属于稳定 API：
 
-- `core/memory.py` 中的 `SlidingWindowMemory` 和 ChromaDB `LongTermMemory`
-
-实验模块可以修改接口和行为。稳定化顺序见 [ROADMAP.md](ROADMAP.md)。
+- `SlidingWindowMemory` 和 ChromaDB `LongTermMemory`
 
 ## 公共接口
 
-### `general_mini_agent/__init__.py`
-
-`general_mini_agent` 是推荐的稳定公共 API 入口。`0.9.0` 导出：
-
-- 所有 `core/__init__.py` 导出的稳定组件（见下文）
-- `providers.ProviderCapabilities`
-- `config.FrameworkConfig`
-- `logging.get_logger`
-
-### `core/__init__.py`
-
-`core` 命名空间在 0.9.0 弃用，将在 1.0.0 删除。当前导出为：
+`general_mini_agent/__init__.py` 导出：
 
 - `ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -259,26 +165,16 @@ JSON 使用 `ensure_ascii=False`、`sort_keys=True`、`allow_nan=False`。导入
 - `SequenceNode`、`ParallelNode`、`ParallelErrorPolicy`、`ConditionalNode`
 - `AgentNode`、`AsyncAgentNode`、`DebateNode`
 
-`SlidingWindowMemory` 和 `LongTermMemory` 仅为兼容现有调用而继续导出，不构成稳定 API。
-
 ## 错误处理
 
 - 认证失败和不可重试 HTTP 错误直接转换为脱敏模型错误。
 - 超时、连接错误和临时服务端错误执行有限重试。
-- 未知工具、无效参数和工具异常写入结构化轨迹，使模型可以修正或结束。
+- 未知工具、无效参数和工具异常写入结构化轨迹。
 - 达到最大迭代次数时返回明确的 `stop_reason`。
 - 受保护上下文无法满足预算时在模型请求前返回 `context_budget_exceeded`。
 - 长期记忆检索失败时在模型请求前返回脱敏的 `memory_error`。
-- 多 Agent 参与者或 Judge 非正常结束时返回对应的 Debate 停止原因并停止后续角色。
-- 摘要失败回退到确定性裁剪，不改变原始会话历史。
-- 可选依赖在首次使用实验组件时延迟加载。
 
 ## 测试策略
 
 默认测试使用脚本化模型响应，不访问网络或真实模型服务。稳定模块至少覆盖正常路径、
-无效输入、错误分类、状态隔离和停止条件。实验模块的测试只用于防止已知回归。
-
-上下文与写回测试额外覆盖原子工具边界、受保护轮次、流式中断、请求级重算和状态隔离。
-长期记忆测试覆盖命名空间、显式宽作用域、精确过滤、适配器边界和只读 Agent 检索。
-多 Agent 测试覆盖多轮、收敛、Judge 分离、角色失败、同步/流式一致性和重复运行隔离。
-真实模型验证不属于默认 CI；运行 Demo 前需要从 `.env.example` 创建 `.env` 并配置有效密钥。
+无效输入、错误分类、状态隔离和停止条件。

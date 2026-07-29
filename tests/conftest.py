@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
-from core.llm import LLMResponse, StreamChunk
+from general_mini_agent.llm import LLMResponse, StreamChunk
 
 
 class ScriptedChatModel:

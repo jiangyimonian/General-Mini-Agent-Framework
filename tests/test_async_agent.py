@@ -491,6 +491,44 @@ class TestAsyncAgentConcurrency:
 
         asyncio.run(run())
 
+    def test_same_instance_concurrent_calls_isolate_state(self) -> None:
+        """同一 AsyncAgent 实例的并发调用状态隔离。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+
+        # 共享的 LLM，会根据调用次数返回不同响应
+        class SharedLLM:
+            def __init__(self):
+                self.call_count = 0
+
+            async def chat_async(self, messages, *, tools=None):
+                self.call_count += 1
+                call_id = self.call_count
+                await asyncio.sleep(0.05)
+                return LLMResponse(
+                    content=f"response {call_id}",
+                    tool_calls=None,
+                    usage={"total_tokens": call_id},
+                )
+
+        async def run():
+            llm = SharedLLM()
+            agent = AsyncAgent(llm)
+
+            # 同一实例的两个并发调用
+            task1 = asyncio.create_task(agent.run_async("input 1"))
+            task2 = asyncio.create_task(agent.run_async("input 2"))
+            results = await asyncio.gather(task1, task2)
+
+            # 两个结果应该有不同的内容和 usage
+            assert results[0].content != results[1].content
+            assert results[0].usage != results[1].usage
+            # 每个 trace 应该是独立的
+            assert len(results[0].trace) >= 0
+            assert len(results[1].trace) >= 0
+
+        asyncio.run(run())
+
 
 class TestAsyncAgentProtocolMigration:
     """测试 AsyncAgent 迁移到协议接口后的行为。"""

@@ -408,6 +408,23 @@ def test_run_stream_does_not_call_final_hook_for_incomplete_response() -> None:
     assert final_hooks == []
 
 
+def test_run_state_is_isolated_between_invocations() -> None:
+    """验证同步 run() 的状态在多次调用间隔离。"""
+    model = ScriptedChatModel([
+        LLMResponse(content="first", tool_calls=None, usage={"total_tokens": 2}),
+        LLMResponse(content="second", tool_calls=None, usage={"total_tokens": 3}),
+    ])
+    agent = Agent(llm=model, tools=[])
+
+    first_result = agent.run("one")
+    second_result = agent.run("two")
+
+    assert first_result.content == "first"
+    assert second_result.content == "second"
+    assert second_result.usage == {"total_tokens": 3}
+    assert len(second_result.trace) == 1
+
+
 def test_run_stream_state_is_isolated_between_invocations() -> None:
     model = ScriptedStreamingChatModel([], [
         [StreamChunk(content="first", finish_reason="stop", usage={"total_tokens": 2})],

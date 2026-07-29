@@ -642,15 +642,16 @@ class TestAgentBasic:
         assert events[-1]["stop_reason"] == "max_iterations"
 
     def test_empty_response(self):
-        """LLM 返回空响应"""
+        """LLM 返回空响应应该返回 model_error"""
         mock_llm = make_mock_llm([
             LLMResponse(content=None, tool_calls=None, usage={}),
-            LLMResponse(content="[FINAL] 恢复", tool_calls=None, usage={}),
         ])
 
         agent = Agent(llm=mock_llm, tools=[], max_iterations=5)
         result = agent.run("测试")
-        assert result.content == "恢复"
+        assert result.stop_reason == "model_error"
+        assert result.content == ""
+        assert "empty response" in result.error.lower()
 
     def test_usage_accumulation(self):
         """多次调用的 token 用量应累加"""
@@ -1147,6 +1148,113 @@ def test_memory_write_failure_is_not_reported_as_model_error() -> None:
 
     with pytest.raises(RuntimeError, match="memory write failed"):
         Agent(llm=model, tools=[], memory=FailingMemory()).run("question")
+
+
+class TestSyncTerminalBehavior:
+    """Tests for sync run() terminal behavior and prompt."""
+
+    @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "unknown_reason"])
+    def test_sync_run_maps_non_terminal_finish_reason_to_incomplete(
+        self, finish_reason: str
+    ) -> None:
+        """Non-terminal finish reasons should return incomplete result."""
+        model = ScriptedChatModel([
+            LLMResponse(
+                content="partial answer",
+                tool_calls=None,
+                finish_reason=finish_reason,
+            ),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("question")
+
+        assert result.stop_reason == "incomplete"
+        assert result.content == "partial answer"
+        assert result.error is not None
+        assert finish_reason in result.error
+
+    def test_sync_run_returns_model_error_on_empty_response(self) -> None:
+        """Empty response (no content, no tool calls) should return model_error."""
+        model = ScriptedChatModel([
+            LLMResponse(content=None, tool_calls=None, finish_reason=None),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("question")
+
+        assert result.stop_reason == "model_error"
+        assert result.content == ""
+        assert "empty response" in result.error.lower()
+        assert result.iterations == 0
+        # Should not append fake assistant message to messages
+        assert len(model.calls) == 1
+
+    def test_sync_run_handles_legacy_model_response_without_finish_reason(self) -> None:
+        """Legacy response with text but no finish_reason should complete."""
+        model = ScriptedChatModel([
+            LLMResponse(content="legacy answer", tool_calls=None, finish_reason=None),
+        ])
+
+        result = Agent(llm=model, tools=[]).run("question")
+
+        assert result.stop_reason == "completed"
+        assert result.content == "legacy answer"
+        assert result.error is None
+
+    def test_sync_run_commits_memory_only_on_completed(self) -> None:
+        """Memory should only be committed when stop_reason is completed."""
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+
+        # Test incomplete result does not commit memory
+        incomplete_model = ScriptedChatModel([
+            LLMResponse(content="partial", tool_calls=None, finish_reason="length"),
+        ])
+        Agent(llm=incomplete_model, tools=[], memory=memory).run("question 1")
+        assert memory.get_context() == []
+
+        # Test model_error does not commit memory
+        error_model = ScriptedChatModel([
+            LLMResponse(content=None, tool_calls=None, finish_reason=None),
+        ])
+        Agent(llm=error_model, tools=[], memory=memory).run("question 2")
+        assert memory.get_context() == []
+
+        # Test completed result commits memory
+        completed_model = ScriptedChatModel([
+            LLMResponse(content="answer", tool_calls=None, finish_reason="stop"),
+        ])
+        Agent(llm=completed_model, tools=[], memory=memory).run("question 3")
+        assert memory.get_context() == [
+            {"role": "user", "content": "question 3"},
+            {"role": "assistant", "content": "answer"},
+        ]
+
+    def test_sync_run_final_hook_receives_trace_copy(self) -> None:
+        """Final hook should receive a copy of the final trace entry."""
+        final_hooks: list[dict] = []
+
+        model = ScriptedChatModel([
+            LLMResponse(content="final answer", tool_calls=None, finish_reason="stop"),
+        ])
+
+        result = Agent(
+            llm=model,
+            tools=[],
+            hooks={"on_final": final_hooks.append},
+        ).run("question")
+
+        assert result.stop_reason == "completed"
+        assert len(final_hooks) == 1
+
+        # Hook receives the trace entry
+        hook_data = final_hooks[0]
+        assert hook_data["type"] == "final"
+        assert hook_data["final_answer"] == "final answer"
+
+        # Modifying hook data should not affect result trace
+        hook_data["modified"] = "test"
+        assert "modified" not in result.trace[-1]
 
 
 class TestAgentToolAuthorization:

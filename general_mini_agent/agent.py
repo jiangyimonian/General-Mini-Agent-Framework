@@ -18,6 +18,7 @@ from .agent_protocol import (
     classify_turn,
     clean_final_content,
     invalid_arguments_result,
+    safe_error_message,
 )
 from .context import ContextBudgetExceeded, ContextPolicy
 from .events import EventSink, RunContext, RunEventEmitter
@@ -201,18 +202,9 @@ DEFAULT_SYSTEM_PROMPT = """你是一个擅长多步推理的 AI 助手。你有�
 
 {tool_descriptions}
 
-请按以下格式思考和回答：
+当你需要使用工具时，直接调用工具即可。你可以多次调用工具来收集信息。
 
-Thought: 分析当前情况，决定下一步做什么
-Action: 工具名称
-Action Input: {{"参数名": "参数值"}}
-
-...（可多次重复 Thought → Action → Observation 步骤）
-
-当你得到足够信息后：
-
-Thought: 我已经得到足够信息
-Final Answer: 最终回答
+当你得到足够信息后，直接给出最终回答。
 
 请用中文思考并回答问题。"""
 
@@ -372,15 +364,6 @@ class Agent:
 
             # 使用协议接口处理响应
             turn = AssistantTurn.from_response(response)
-
-            # 检查是否为空响应（旧版兼容）
-            if not turn.content and not turn.tool_calls:
-                messages.append({
-                    "role": "assistant",
-                    "content": "（空响应，请继续）",
-                })
-                continue
-
             append_assistant_turn(messages, turn)
             decision = classify_turn(turn)
 
@@ -806,7 +789,7 @@ class Agent:
                 "thought": turn.content or "",
                 "final_answer": clean_content,
             })
-            self._call_hook("on_final", trace[-1])
+            self._call_hook("on_final", dict(trace[-1]))
             self._commit_exchange(user_input, clean_content)
             emitter.emit("run_finished", {"stop_reason": "completed", "answer": clean_content})
             return AgentResult(
@@ -818,22 +801,25 @@ class Agent:
             )
 
         if decision.action == "stop_error":
+            error_message = safe_error_message(decision)
             trace.append({
                 "type": "model_error",
                 "iteration": iteration,
-                "message": decision.message or "unknown error",
+                "message": error_message,
             })
             emitter.emit(
                 "run_finished",
-                {"stop_reason": decision.stop_reason or "model_error", "error": decision.message}
+                {"stop_reason": decision.stop_reason or "model_error", "error": error_message}
             )
+            # For incomplete results, return the content; for model_error, return empty
+            content = turn.content if decision.stop_reason == "incomplete" else ""
             return AgentResult(
-                content="",
+                content=content,
                 trace=trace,
                 usage=usage,
                 iterations=iteration,
                 stop_reason=decision.stop_reason or "model_error",
-                error=decision.message,
+                error=error_message,
                 run_id=emitter.run_id,
             )
 

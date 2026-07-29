@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from .llm import LLMResponse, ToolCall
+from .llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
 from .tools import ToolExecutionResult
 
 # ─── 类型定义 ───────────────────────────────────────────────
@@ -241,3 +241,112 @@ def safe_error_message(decision: TurnDecision) -> str:
     if decision.stop_reason:
         return decision.stop_reason
     return "unknown error"
+
+
+# ─── 流式回合累积器 ───────────────────────────────────────────
+
+
+@dataclass
+class _AccumulatedToolCall:
+    """累积的工具调用片段"""
+
+    index: int
+    id: str = ""
+    name: str = ""
+    argument_parts: list[str] = field(default_factory=list)
+
+    @property
+    def raw_arguments(self) -> str:
+        """拼接原始参数片段"""
+        return "".join(self.argument_parts)
+
+
+class StreamingTurnAccumulator:
+    """流式回合累积器 —— 累积 StreamChunk 并转换为 AssistantTurn"""
+
+    def __init__(self) -> None:
+        self._content_parts: list[str] = []
+        self._tool_calls: dict[int, _AccumulatedToolCall] = {}
+        self._finish_reason: str = ""
+        self._usage: dict[str, int] = {}
+
+    def add(self, chunk: StreamChunk) -> None:
+        """添加一个流式 chunk"""
+        # 累积文本内容
+        if chunk.content:
+            self._content_parts.append(chunk.content)
+
+        # 累积工具调用片段
+        for delta in chunk.tool_calls:
+            call = self._tool_calls.setdefault(
+                delta.index, _AccumulatedToolCall(delta.index)
+            )
+            # 检查 ID 冲突
+            if delta.id:
+                if call.id and call.id != delta.id:
+                    raise ModelRequestError(
+                        f"model tool call at index {delta.index} has conflicting id",
+                        error_code="stream_protocol_error",
+                    )
+                call.id = delta.id
+            # 检查名称冲突
+            if delta.name:
+                if call.name and call.name != delta.name:
+                    raise ModelRequestError(
+                        f"model tool call at index {delta.index} has conflicting name",
+                        error_code="stream_protocol_error",
+                    )
+                call.name = delta.name
+            # 累积参数片段
+            if delta.arguments:
+                call.argument_parts.append(delta.arguments)
+
+        # 记录 finish_reason
+        if chunk.finish_reason:
+            self._finish_reason = chunk.finish_reason
+
+        # 更新 usage（保留最新的）
+        if chunk.usage:
+            self._usage = chunk.usage
+
+    def finalize(self) -> AssistantTurn:
+        """转换为不可变的 AssistantTurn"""
+        # 拼接文本内容
+        content = "".join(self._content_parts)
+
+        # 转换工具调用
+        tool_calls: list[ToolCall] = []
+        if self._tool_calls:
+            # 按索引排序
+            sorted_calls = [self._tool_calls[idx] for idx in sorted(self._tool_calls)]
+
+            # 验证并转换为 ToolCall
+            for accumulated in sorted_calls:
+                # 检查身份完整性
+                if not accumulated.id or not accumulated.name:
+                    raise ModelRequestError(
+                        f"model tool call at index {accumulated.index} is missing identity metadata",
+                        error_code="stream_protocol_error",
+                    )
+                # 通过 ToolCall.from_raw() 解析参数
+                call = ToolCall.from_raw(
+                    call_id=accumulated.id,
+                    name=accumulated.name,
+                    raw_arguments=accumulated.raw_arguments,
+                )
+                tool_calls.append(call)
+
+        # 检查 finish_reason="tool_calls" 但无调用的情况
+        if self._finish_reason == "tool_calls" and not tool_calls:
+            raise ModelRequestError(
+                "model ended with tool_calls but supplied no calls",
+                error_code="stream_protocol_error",
+            )
+
+        # 流式响应不合成 stop，保持原样
+        return AssistantTurn(
+            content=content or None,
+            tool_calls=tuple(tool_calls),
+            finish_reason=self._finish_reason,
+            usage=self._usage,
+        )

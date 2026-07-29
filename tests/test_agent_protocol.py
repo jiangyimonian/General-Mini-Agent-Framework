@@ -226,3 +226,197 @@ class TestSafeErrorMessage:
         """缺少消息时使用 stop_reason"""
         decision = TurnDecision(action="stop_error", stop_reason="model_error")
         assert safe_error_message(decision) == "model_error"
+
+
+class TestStreamingTurnAccumulator:
+    """测试 StreamingTurnAccumulator 流式累积器"""
+
+    def test_accumulates_interleaved_tool_calls(self):
+        """应累积交错索引的工具调用"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(
+            tool_calls=[
+                ToolCallDelta(index=1, id="c2", name="second", arguments='{"b":'),
+            ]
+        ))
+        accumulator.add(StreamChunk(
+            tool_calls=[
+                ToolCallDelta(index=0, id="c1", name="first", arguments='{"a":'),
+            ]
+        ))
+        accumulator.add(StreamChunk(
+            tool_calls=[
+                ToolCallDelta(index=0, arguments='1}'),
+                ToolCallDelta(index=1, arguments='2}'),
+            ],
+            finish_reason="tool_calls",
+        ))
+
+        turn = accumulator.finalize()
+
+        # 应按索引排序
+        assert len(turn.tool_calls) == 2
+        assert turn.tool_calls[0].id == "c1"
+        assert turn.tool_calls[0].name == "first"
+        assert turn.tool_calls[0].raw_arguments == '{"a":1}'
+        assert turn.tool_calls[1].id == "c2"
+        assert turn.tool_calls[1].name == "second"
+        assert turn.tool_calls[1].raw_arguments == '{"b":2}'
+
+    def test_accumulates_text_content(self):
+        """应累积文本内容"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(content="Hello "))
+        accumulator.add(StreamChunk(content="world"))
+        accumulator.add(StreamChunk(content="!", finish_reason="stop"))
+
+        turn = accumulator.finalize()
+
+        assert turn.content == "Hello world!"
+        assert turn.finish_reason == "stop"
+
+    def test_usage_latest_snapshot(self):
+        """应保留最新的 usage 快照"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(usage={"prompt_tokens": 5}))
+        accumulator.add(StreamChunk(usage={"prompt_tokens": 10, "completion_tokens": 5}))
+        accumulator.add(StreamChunk(finish_reason="stop"))
+
+        turn = accumulator.finalize()
+
+        assert turn.usage == {"prompt_tokens": 10, "completion_tokens": 5}
+
+    def test_tool_calls_with_stop_finish_reason(self):
+        """finish_reason 为 stop 但有工具调用时应保留两者"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(
+            tool_calls=[ToolCallDelta(index=0, id="c1", name="lookup", arguments="{}")],
+            finish_reason="stop"
+        ))
+
+        turn = accumulator.finalize()
+
+        assert len(turn.tool_calls) == 1
+        assert turn.finish_reason == "stop"
+
+    def test_missing_finish_reason_with_text_does_not_synthesize_stop(self):
+        """流式响应缺少 finish_reason 且有文本时不合成 stop"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(content="partial response"))
+
+        turn = accumulator.finalize()
+
+        # 流式响应不合成 stop，保持为空
+        assert turn.finish_reason == ""
+
+    def test_missing_calls_with_tool_calls_finish_reason_raises_error(self):
+        """finish_reason 为 tool_calls 但无调用应抛出错误"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk, ModelRequestError
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(finish_reason="tool_calls"))
+
+        with pytest.raises(ModelRequestError) as exc_info:
+            accumulator.finalize()
+
+        assert exc_info.value.error_code == "stream_protocol_error"
+
+    def test_conflicting_tool_call_id_raises_error(self):
+        """工具调用 ID 冲突应抛出错误"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(
+            tool_calls=[ToolCallDelta(index=0, id="c1", name="lookup", arguments="{}")]
+        ))
+        # ID 冲突应在 add() 时立即抛出
+        with pytest.raises(ModelRequestError) as exc_info:
+            accumulator.add(StreamChunk(
+                tool_calls=[ToolCallDelta(index=0, id="c2", name="lookup", arguments="{}")]
+            ))
+
+        assert exc_info.value.error_code == "stream_protocol_error"
+        assert "conflicting id" in str(exc_info.value)
+
+    def test_conflicting_tool_call_name_raises_error(self):
+        """工具调用名称冲突应抛出错误"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(
+            tool_calls=[ToolCallDelta(index=0, id="c1", name="lookup", arguments="{}")]
+        ))
+        # 名称冲突应在 add() 时立即抛出
+        with pytest.raises(ModelRequestError) as exc_info:
+            accumulator.add(StreamChunk(
+                tool_calls=[ToolCallDelta(index=0, id="c1", name="search", arguments="{}")]
+            ))
+
+        assert exc_info.value.error_code == "stream_protocol_error"
+        assert "conflicting name" in str(exc_info.value)
+
+    def test_missing_identity_raises_error(self):
+        """工具调用缺少 ID 或名称应抛出错误"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(
+            tool_calls=[ToolCallDelta(index=0, id="c1", name="", arguments="{}")]
+        ))
+        accumulator.add(StreamChunk(finish_reason="tool_calls"))
+
+        with pytest.raises(ModelRequestError) as exc_info:
+            accumulator.finalize()
+
+        assert exc_info.value.error_code == "stream_protocol_error"
+        assert "missing identity" in str(exc_info.value)
+
+    def test_invalid_json_arguments_are_parsed(self):
+        """无效 JSON 参数应通过 ToolCall.from_raw() 解析"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
+
+        accumulator = StreamingTurnAccumulator()
+        accumulator.add(StreamChunk(
+            tool_calls=[ToolCallDelta(index=0, id="c1", name="lookup", arguments='{"invalid"')]
+        ))
+        accumulator.add(StreamChunk(finish_reason="tool_calls"))
+
+        turn = accumulator.finalize()
+
+        assert len(turn.tool_calls) == 1
+        call = turn.tool_calls[0]
+        assert call.raw_arguments == '{"invalid"'
+        assert call.arguments is None
+        assert call.argument_error is not None
+
+    def test_empty_stream_returns_empty_turn(self):
+        """空流应返回空回合"""
+        from general_mini_agent.agent_protocol import StreamingTurnAccumulator
+
+        accumulator = StreamingTurnAccumulator()
+        turn = accumulator.finalize()
+
+        assert turn.content is None
+        assert turn.tool_calls == ()
+        assert turn.finish_reason == ""
+        assert turn.usage == {}

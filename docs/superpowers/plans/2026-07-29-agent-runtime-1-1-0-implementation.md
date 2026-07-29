@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Execution note:** 本文件是完整总计划，仅用于总览和追踪。实际实施必须按以下五份独立文档依次执行，不要直接从本文件并行分派 12 个 Task：
+>
+> 1. `2026-07-29-agent-runtime-1-1-0-01-protocol-foundation.md`
+> 2. `2026-07-29-agent-runtime-1-1-0-02-sync-agent.md`
+> 3. `2026-07-29-agent-runtime-1-1-0-03-async-parity.md`
+> 4. `2026-07-29-agent-runtime-1-1-0-04-context-memory-state.md`
+> 5. `2026-07-29-agent-runtime-1-1-0-05-release-integration.md`
+
 **Goal:** 修复并统一同步、流式和异步 Agent 的工具回合、终止状态、消息协议和状态隔离，使 `1.1.0` 成为后续项目工具、权限和 CLI 的稳定内核。
 
 **Architecture:** 在现有 Agent 生命周期外增加无 I/O 的 `agent_protocol.py`，集中定义 `AssistantTurn`、消息组装、流式回合累积和终止判断。`Agent`、`AsyncAgent` 继续保留各自的同步/异步模型与工具执行路径，但只通过共享协议处理模型回合；不引入完整状态机，也不在本计划中实现项目工具或 CLI。

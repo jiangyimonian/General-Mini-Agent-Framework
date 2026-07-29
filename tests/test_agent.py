@@ -1206,27 +1206,34 @@ class TestSyncTerminalBehavior:
 
         memory = InMemoryConversation()
 
-        # Test incomplete result does not commit memory
+        # Test incomplete result (length) does not commit memory
         incomplete_model = ScriptedChatModel([
             LLMResponse(content="partial", tool_calls=None, finish_reason="length"),
         ])
         Agent(llm=incomplete_model, tools=[], memory=memory).run("question 1")
         assert memory.get_context() == []
 
+        # Test incomplete result (content_filter) does not commit memory
+        content_filter_model = ScriptedChatModel([
+            LLMResponse(content="filtered", tool_calls=None, finish_reason="content_filter"),
+        ])
+        Agent(llm=content_filter_model, tools=[], memory=memory).run("question 2")
+        assert memory.get_context() == []
+
         # Test model_error does not commit memory
         error_model = ScriptedChatModel([
             LLMResponse(content=None, tool_calls=None, finish_reason=None),
         ])
-        Agent(llm=error_model, tools=[], memory=memory).run("question 2")
+        Agent(llm=error_model, tools=[], memory=memory).run("question 3")
         assert memory.get_context() == []
 
         # Test completed result commits memory
         completed_model = ScriptedChatModel([
             LLMResponse(content="answer", tool_calls=None, finish_reason="stop"),
         ])
-        Agent(llm=completed_model, tools=[], memory=memory).run("question 3")
+        Agent(llm=completed_model, tools=[], memory=memory).run("question 4")
         assert memory.get_context() == [
-            {"role": "user", "content": "question 3"},
+            {"role": "user", "content": "question 4"},
             {"role": "assistant", "content": "answer"},
         ]
 
@@ -1255,6 +1262,33 @@ class TestSyncTerminalBehavior:
         # Modifying hook data should not affect result trace
         hook_data["modified"] = "test"
         assert "modified" not in result.trace[-1]
+
+    def test_sync_run_final_hook_cannot_mutate_stored_assistant_content(self) -> None:
+        """Final hook mutation should not affect stored assistant content in memory."""
+        memory = InMemoryConversation()
+        final_hooks: list[dict] = []
+
+        model = ScriptedChatModel([
+            LLMResponse(content="original answer", tool_calls=None, finish_reason="stop"),
+        ])
+
+        result = Agent(
+            llm=model,
+            tools=[],
+            memory=memory,
+            hooks={"on_final": final_hooks.append},
+        ).run("question")
+
+        assert result.stop_reason == "completed"
+        assert len(final_hooks) == 1
+
+        # Mutate hook data
+        hook_data = final_hooks[0]
+        hook_data["final_answer"] = "mutated answer"
+
+        # Verify stored content is unchanged
+        assert result.content == "original answer"
+        assert memory.get_context()[1]["content"] == "original answer"
 
 
 class TestAgentToolAuthorization:

@@ -699,6 +699,26 @@ class TestAsyncAgentProtocolMigration:
 
         asyncio.run(run())
 
+    def test_content_filter_does_not_commit_memory(self) -> None:
+        """content_filter 结束原因不提交 memory。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        model = MockAsyncLLM([
+            LLMResponse(content="filtered", tool_calls=None, finish_reason="content_filter", usage={}),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, memory=memory)
+            result = await agent.run_async("question")
+            assert result.stop_reason == "incomplete"
+            assert result.content == "filtered"
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
 
 # ─────────────────────────────────────────────────────────────
 # AsyncAgent run_stream_async 测试
@@ -976,6 +996,30 @@ class TestAsyncAgentStreaming:
 
         asyncio.run(run())
 
+    def test_content_filter_does_not_commit_memory(self) -> None:
+        """content_filter 结束原因不提交 memory。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="filtered", finish_reason="content_filter")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, memory=memory)
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert events[-1]["stop_reason"] == "incomplete"
+            assert events[-1]["content"] == "filtered"
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
     def test_tool_calls_presence_not_finish_reason_drives_continuation(self) -> None:
         """工具调用存在而非 finish_reason='tool_calls' 决定继续。"""
         from conftest import ScriptedAsyncStreamingChatModel
@@ -1006,6 +1050,41 @@ class TestAsyncAgentStreaming:
 
             # 工具应该被执行（因为 tool_calls 非空）
             assert calls == ["tool"]
+
+        asyncio.run(run())
+
+    def test_final_hook_cannot_mutate_stored_assistant_content(self) -> None:
+        """final hook 变异不影响存储的 assistant content。"""
+        from conftest import ScriptedAsyncChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        final_hooks: list[dict] = []
+
+        model = ScriptedAsyncChatModel([
+            LLMResponse(content="original answer", tool_calls=None, finish_reason="stop"),
+        ])
+
+        async def run():
+            agent = AsyncAgent(
+                llm=model,
+                memory=memory,
+                hooks={"on_final": final_hooks.append},
+            )
+            result = await agent.run_async("question")
+
+            assert result.stop_reason == "completed"
+            assert len(final_hooks) == 1
+
+            # 变异 hook 数据
+            hook_data = final_hooks[0]
+            hook_data["final_answer"] = "mutated answer"
+
+            # 验证存储的内容未改变
+            assert result.content == "original answer"
+            assert memory.get_context()[1]["content"] == "original answer"
 
         asyncio.run(run())
 

@@ -490,3 +490,211 @@ class TestAsyncAgentConcurrency:
             assert len(results[1].trace) >= 0
 
         asyncio.run(run())
+
+
+class TestAsyncAgentProtocolMigration:
+    """测试 AsyncAgent 迁移到协议接口后的行为。"""
+
+    def test_two_tools_in_one_turn_builds_canonical_message_sequence(self) -> None:
+        """验证多工具调用的消息序列符合协议规范。"""
+        from conftest import StrictScriptedAsyncChatModel
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse, ToolCall
+        from general_mini_agent.tools import Tool
+
+        model = StrictScriptedAsyncChatModel([
+            LLMResponse(
+                content="use both tools",
+                tool_calls=[
+                    ToolCall("c1", "add", {"a": 2, "b": 3}),
+                    ToolCall("c2", "multiply", {"a": 4, "b": 5}),
+                ],
+            ),
+            LLMResponse(content="done", tool_calls=None),
+        ])
+
+        async def run():
+            agent = AsyncAgent(
+                llm=model,
+                tools=[
+                    Tool(lambda a, b: a + b, name="add"),
+                    Tool(lambda a, b: a * b, name="multiply"),
+                ],
+            )
+            result = await agent.run_async("calculate")
+            assert result.content == "done"
+            # 验证第二次模型调用收到正确消息序列：
+            # [system, user, assistant(tool_calls=[c1, c2]), tool(c1), tool(c2)]
+            second_call_messages = model.calls[1][0]
+            assert len(second_call_messages) == 5
+            assert second_call_messages[0]["role"] == "system"
+            assert second_call_messages[1]["role"] == "user"
+            assert second_call_messages[2]["role"] == "assistant"
+            assert len(second_call_messages[2]["tool_calls"]) == 2
+            assert second_call_messages[2]["tool_calls"][0]["id"] == "c1"
+            assert second_call_messages[2]["tool_calls"][1]["id"] == "c2"
+            assert second_call_messages[3]["role"] == "tool"
+            assert second_call_messages[3]["tool_call_id"] == "c1"
+            assert second_call_messages[4]["role"] == "tool"
+            assert second_call_messages[4]["tool_call_id"] == "c2"
+
+        asyncio.run(run())
+
+    def test_length_finish_reason_does_not_commit_memory(self) -> None:
+        """length 结束原因不提交 memory。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        model = MockAsyncLLM([
+            LLMResponse(content="partial answer", tool_calls=None, finish_reason="length", usage={}),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, memory=memory)
+            result = await agent.run_async("question")
+            assert result.stop_reason == "incomplete"
+            assert result.content == "partial answer"
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
+    def test_empty_response_returns_model_error(self) -> None:
+        """空响应返回 model_error。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+
+        model = MockAsyncLLM([
+            LLMResponse(content=None, tool_calls=None, usage={}),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model)
+            result = await agent.run_async("question")
+            assert result.stop_reason == "model_error"
+            assert result.content == ""
+            assert "empty response" in result.error.lower()
+
+        asyncio.run(run())
+
+    def test_legacy_text_response_completes(self) -> None:
+        """遗留响应（无 finish_reason）有文本时正常完成。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+
+        model = MockAsyncLLM([
+            LLMResponse(content="legacy answer", tool_calls=None, finish_reason=None, usage={}),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model)
+            result = await agent.run_async("question")
+            assert result.stop_reason == "completed"
+            assert result.content == "legacy answer"
+            assert result.error is None
+
+        asyncio.run(run())
+
+    def test_tool_failure_allows_model_recovery(self) -> None:
+        """工具失败后模型可以恢复。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse, ToolCall
+
+        @tool
+        def explode() -> str:
+            raise RuntimeError("boom")
+
+        model = MockAsyncLLM([
+            LLMResponse(content="call", tool_calls=[ToolCall("c1", "explode", {})], usage={}),
+            LLMResponse(content="recovered", tool_calls=None, usage={}),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[explode])
+            result = await agent.run_async("question")
+            assert result.stop_reason == "completed"
+            assert result.content == "recovered"
+            assert result.trace[0]["error_code"] == "execution_failed"
+
+        asyncio.run(run())
+
+    def test_cancellation_does_not_commit_memory(self) -> None:
+        """取消不提交 memory（已有测试，验证行为不变）。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        class BlockingLLM:
+            def __init__(self):
+                self.started = False
+
+            async def chat_async(self, messages, *, tools=None):
+                self.started = True
+                await asyncio.sleep(10)
+                return LLMResponse(content="done", tool_calls=None, usage={})
+
+        llm = BlockingLLM()
+        memory = InMemoryConversation()
+
+        async def run():
+            agent = AsyncAgent(llm=llm, memory=memory)
+            task = asyncio.create_task(agent.run_async("hi"))
+            await asyncio.sleep(0.01)
+            assert llm.started
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
+    def test_max_iterations_does_not_commit_memory(self) -> None:
+        """达到最大迭代不提交 memory。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse, ToolCall
+        from general_mini_agent.memory import InMemoryConversation
+
+        @tool
+        def keep_going() -> str:
+            return "continue"
+
+        memory = InMemoryConversation()
+        model = MockAsyncLLM([
+            LLMResponse(content="", tool_calls=[ToolCall("c1", "keep_going", {})], usage={}),
+            LLMResponse(content="", tool_calls=[ToolCall("c2", "keep_going", {})], usage={}),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, tools=[keep_going], max_iterations=2, memory=memory)
+            result = await agent.run_async("question")
+            assert result.stop_reason == "max_iterations"
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
+    def test_model_error_does_not_commit_memory(self) -> None:
+        """模型错误不提交 memory。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+
+        class FailingModel:
+            async def chat_async(self, messages, *, tools=None):
+                raise Exception("model failed")
+
+        async def run():
+            agent = AsyncAgent(llm=FailingModel(), memory=memory)
+            # Note: The agent catches ModelRequestError, not general exceptions
+            # So this will raise an exception, which we catch
+            try:
+                await agent.run_async("question")
+            except Exception:
+                pass
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())

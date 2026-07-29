@@ -90,3 +90,35 @@ class StrictScriptedChatModel(ScriptedChatModel):
     ) -> LLMResponse:
         assert_valid_tool_transcript(messages)
         return super().chat(messages, tools=tools)
+
+
+class ScriptedAsyncChatModel:
+    """异步版本的脚本模型，用于测试 AsyncAgent。"""
+
+    def __init__(self, responses: Sequence[LLMResponse]) -> None:
+        self._responses = list(responses)
+        self.calls: list[tuple[list[dict[str, Any]], list[dict[str, Any]] | None]] = []
+
+    async def chat_async(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
+        self.calls.append((deepcopy(messages), deepcopy(tools)))
+        if not self._responses:
+            raise AssertionError("ScriptedAsyncChatModel has no remaining responses")
+        return self._responses.pop(0)
+
+
+class StrictScriptedAsyncChatModel(ScriptedAsyncChatModel):
+    """严格验证工具消息序列的异步脚本模型"""
+
+    async def chat_async(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
+        assert_valid_tool_transcript(messages)
+        return await super().chat_async(messages, tools=tools)

@@ -10,16 +10,75 @@ from typing import Any, NotRequired, TypedDict
 from .agent_protocol import (
     AgentStopReason,
     AssistantTurn,
+    StreamingTurnAccumulator,
     ToolOutcome,
     TurnDecision,
     append_assistant_turn,
     append_tool_outcomes,
+    build_incomplete_trace,
     build_tool_trace,
     classify_turn,
     clean_final_content,
     invalid_arguments_result,
     safe_error_message,
 )
+
+
+# 为async_agent向后兼容保留的旧类定义
+@dataclass
+class _AccumulatedToolCall:
+    """已弃用：内部工具调用累积片段，仅为async_agent兼容保留"""
+
+    index: int
+    id: str = ""
+    name: str = ""
+    argument_parts: list[str] = field(default_factory=list)
+
+    @property
+    def raw_arguments(self) -> str:
+        return "".join(self.argument_parts)
+
+
+class _ToolCallAccumulator:
+    """已弃用：内部工具调用累积器，仅为async_agent兼容保留"""
+
+    def __init__(self) -> None:
+        self._calls: dict[int, _AccumulatedToolCall] = {}
+
+    def add(self, delta: ToolCallDelta) -> None:
+        call = self._calls.setdefault(delta.index, _AccumulatedToolCall(delta.index))
+        if delta.id:
+            if call.id and call.id != delta.id:
+                raise self._protocol_error(delta.index, "id")
+            call.id = delta.id
+        if delta.name:
+            if call.name and call.name != delta.name:
+                raise self._protocol_error(delta.index, "name")
+            call.name = delta.name
+        if delta.arguments:
+            call.argument_parts.append(delta.arguments)
+
+    def finalize(self) -> list[_AccumulatedToolCall]:
+        calls = [self._calls[index] for index in sorted(self._calls)]
+        if not calls:
+            raise ModelRequestError(
+                "model ended with tool_calls but supplied no calls",
+                error_code="stream_protocol_error",
+            )
+        for call in calls:
+            if not call.id or not call.name:
+                raise ModelRequestError(
+                    f"model tool call at index {call.index} is missing identity metadata",
+                    error_code="stream_protocol_error",
+                )
+        return calls
+
+    @staticmethod
+    def _protocol_error(index: int, field_name: str) -> ModelRequestError:
+        return ModelRequestError(
+            f"model tool call at index {index} has conflicting {field_name}",
+            error_code="stream_protocol_error",
+        )
 from .context import ContextBudgetExceeded, ContextPolicy
 from .events import EventSink, RunContext, RunEventEmitter
 from .llm import ChatModel, ModelRequestError, ToolCallDelta
@@ -119,58 +178,6 @@ StreamEvent = (
     | ModelErrorEvent
     | DoneEvent
 )
-
-
-@dataclass
-class _AccumulatedToolCall:
-    index: int
-    id: str = ""
-    name: str = ""
-    argument_parts: list[str] = field(default_factory=list)
-
-    @property
-    def raw_arguments(self) -> str:
-        return "".join(self.argument_parts)
-
-
-class _ToolCallAccumulator:
-    def __init__(self) -> None:
-        self._calls: dict[int, _AccumulatedToolCall] = {}
-
-    def add(self, delta: ToolCallDelta) -> None:
-        call = self._calls.setdefault(delta.index, _AccumulatedToolCall(delta.index))
-        if delta.id:
-            if call.id and call.id != delta.id:
-                raise self._protocol_error(delta.index, "id")
-            call.id = delta.id
-        if delta.name:
-            if call.name and call.name != delta.name:
-                raise self._protocol_error(delta.index, "name")
-            call.name = delta.name
-        if delta.arguments:
-            call.argument_parts.append(delta.arguments)
-
-    def finalize(self) -> list[_AccumulatedToolCall]:
-        calls = [self._calls[index] for index in sorted(self._calls)]
-        if not calls:
-            raise ModelRequestError(
-                "model ended with tool_calls but supplied no calls",
-                error_code="stream_protocol_error",
-            )
-        for call in calls:
-            if not call.id or not call.name:
-                raise ModelRequestError(
-                    f"model tool call at index {call.index} is missing identity metadata",
-                    error_code="stream_protocol_error",
-                )
-        return calls
-
-    @staticmethod
-    def _protocol_error(index: int, field_name: str) -> ModelRequestError:
-        return ModelRequestError(
-            f"model tool call at index {index} has conflicting {field_name}",
-            error_code="stream_protocol_error",
-        )
 
 
 @dataclass
@@ -460,11 +467,7 @@ class Agent:
         for iteration in range(self.max_iterations):
             yield {"type": "iteration_start", "iteration": iteration}
 
-            thought_parts: list[str] = []
-            tool_calls = _ToolCallAccumulator()
-            finalized_calls: list[_AccumulatedToolCall] | None = None
-            finish_reason = ""
-            request_usage: dict[str, int] = {}
+            accumulator = StreamingTurnAccumulator()
 
             try:
                 request_messages = self._prepare_request(messages)
@@ -490,27 +493,19 @@ class Agent:
                 for chunk in self.llm.chat_stream(
                     request_messages, tools=self.registry.schemas()
                 ):
+                    accumulator.add(chunk)
                     if chunk.content:
-                        thought_parts.append(chunk.content)
                         yield {
                             "type": "thought_chunk",
                             "iteration": iteration,
                             "text": chunk.content,
                         }
 
-                    for delta in chunk.tool_calls:
-                        tool_calls.add(delta)
-
-                    for key, value in chunk.usage.items():
-                        if isinstance(value, int):
-                            request_usage[key] = value
-                    if chunk.finish_reason:
-                        finish_reason = chunk.finish_reason
-                if finish_reason == "tool_calls":
-                    finalized_calls = tool_calls.finalize()
-                self._accumulate_usage(total_usage, request_usage)
+                # 累加 usage
+                turn = accumulator.finalize()
+                self._accumulate_usage(total_usage, turn.usage)
             except ModelRequestError as exc:
-                self._accumulate_usage(total_usage, request_usage)
+                self._accumulate_usage(total_usage, accumulator._usage)
                 error = str(exc)
                 trace.append({
                     "type": "model_error",
@@ -537,95 +532,58 @@ class Agent:
                 )
                 return
 
-            thought = "".join(thought_parts)
+            # 使用协议接口处理回合
+            append_assistant_turn(messages, turn)
+            decision = classify_turn(turn)
 
-            if finalized_calls is not None:
-                messages.append({
-                    "role": "assistant",
-                    "content": thought,
-                    "tool_calls": [
-                        {
-                            "id": call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call.name,
-                                "arguments": call.raw_arguments,
-                            },
-                        }
-                        for call in finalized_calls
-                    ],
-                })
+            if decision.action == "continue":
+                # 执行所有工具调用
+                outcomes = []
+                for index, call in enumerate(turn.tool_calls):
+                    execution = (
+                        invalid_arguments_result(call)
+                        if call.arguments is None
+                        else self.registry.execute(call.name, call.arguments)
+                    )
+                    outcomes.append(ToolOutcome(call, execution))
 
-                for call in finalized_calls:
-                    raw_arguments = call.raw_arguments
-                    try:
-                        parsed = json.loads(raw_arguments)
-                        if not isinstance(parsed, dict):
-                            raise ValueError("tool arguments must be a JSON object")
-                        arguments: dict[str, Any] | None = parsed
-                        execution = self.registry.execute(call.name, parsed)
-                    except (json.JSONDecodeError, ValueError) as exc:
-                        arguments = None
-                        execution = ToolExecutionResult(
-                            content=f"invalid arguments for tool '{call.name}': {exc}",
-                            error_code="invalid_arguments",
-                        )
-
-                    obs = execution.content
+                    # 构建并发送事件
                     tool_event: ToolCallEvent = {
                         "type": "tool_call",
                         "iteration": iteration,
-                        "index": call.index,
+                        "index": index,
                         "id": call.id,
                         "name": call.name,
-                        "arguments": arguments,
-                        "raw_arguments": raw_arguments,
-                    }
-                    observation_event: ObservationEvent = {
-                        "type": "observation",
-                        "iteration": iteration,
-                        "index": call.index,
-                        "tool_call_id": call.id,
-                        "name": call.name,
-                        "text": obs,
+                        "arguments": call.arguments,
+                        "raw_arguments": call.raw_arguments or "",
                     }
                     if execution.error_code is not None:
                         tool_event["error_code"] = execution.error_code
+
+                    observation_event: ObservationEvent = {
+                        "type": "observation",
+                        "iteration": iteration,
+                        "index": index,
+                        "tool_call_id": call.id,
+                        "name": call.name,
+                        "text": execution.content,
+                    }
+                    if execution.error_code is not None:
                         observation_event["error_code"] = execution.error_code
+
                     yield tool_event
                     yield observation_event
 
-                    trace_event: TraceEvent = {
-                        "type": "tool_call",
-                        "iteration": iteration,
-                        "thought": thought,
-                        "tool": call.name,
-                        "tool_call_id": call.id,
-                        "index": call.index,
-                        "arguments": arguments,
-                        "raw_arguments": raw_arguments,
-                        "observation": obs,
-                    }
-                    if execution.error_code is not None:
-                        trace_event["error_code"] = execution.error_code
+                    # 构建trace事件
+                    trace_event = build_tool_trace(iteration, turn, index, call, execution)
                     trace.append(trace_event)
-                    self._call_hook("on_tool_call", trace[-1])
+                    self._call_hook("on_tool_call", dict(trace_event))
 
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": call.id,
-                        "content": obs,
-                    })
+                append_tool_outcomes(messages, outcomes)
                 continue
 
-            if finish_reason == "stop":
-                clean = (
-                    thought.replace("[FINAL]", "")
-                    .replace("Final Answer:", "")
-                    .replace("最终答案：", "")
-                    .replace("最终答案:", "")
-                    .strip()
-                )
+            if decision.action == "complete":
+                clean = clean_final_content(turn.content or "")
                 yield {
                     "type": "final_answer",
                     "iteration": iteration,
@@ -634,7 +592,7 @@ class Agent:
                 trace.append({
                     "type": "final_answer",
                     "iteration": iteration,
-                    "thought": thought,
+                    "thought": turn.content or "",
                     "final_answer": clean,
                 })
                 self._call_hook("on_final", trace[-1])
@@ -645,25 +603,23 @@ class Agent:
                     usage=total_usage,
                     iterations=iteration + 1,
                     stop_reason="completed",
-                    finish_reason=finish_reason,
+                    finish_reason=turn.finish_reason,
                 )
                 return
 
-            trace.append({
-                "type": "incomplete",
-                "iteration": iteration,
-                "thought": thought,
-                "finish_reason": finish_reason,
-            })
-            yield self._done_event(
-                content=thought,
-                trace=trace,
-                usage=total_usage,
-                iterations=iteration + 1,
-                stop_reason="incomplete",
-                finish_reason=finish_reason,
-            )
-            return
+            if decision.action == "stop_error":
+                trace_event = build_incomplete_trace(iteration, turn, decision)
+                trace.append(trace_event)
+                yield self._done_event(
+                    content=turn.content or "",
+                    trace=trace,
+                    usage=total_usage,
+                    iterations=iteration + 1,
+                    stop_reason=decision.stop_reason or "incomplete",
+                    finish_reason=turn.finish_reason,
+                    error=safe_error_message(decision),
+                )
+                return
 
         yield self._done_event(
             content="（已达最大迭代次数，未能得出最终答案）",
@@ -746,7 +702,7 @@ class Agent:
         messages: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         if self.context_policy is None:
-            return messages
+            return list(messages)  # 返回副本，避免外部修改影响
         return self.context_policy.prepare(
             messages,
             tools=self.registry.schemas(),

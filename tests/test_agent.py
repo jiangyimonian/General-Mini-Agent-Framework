@@ -1323,3 +1323,81 @@ class TestAgentToolAuthorization:
         second_request = model.stream_calls[1][0]
         tool_message = second_request[-1]
         assert tool_message["content"] == expected_json
+
+
+def test_stream_executes_complete_tool_calls_with_stop_finish_reason() -> None:
+    """工具调用存在时即使finish_reason='stop'也要执行。"""
+
+    @tool
+    def add(a: int, b: int) -> int:
+        return a + b
+
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[ToolCallDelta(0, "c1", "add", '{"a":1,"b":2}')],
+            finish_reason="stop",  # 不是"tool_calls"
+        )],
+        [StreamChunk(content="done", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[add]).run_stream("question"))
+
+    # 应该执行工具调用
+    tool_events = [e for e in events if e["type"] == "tool_call"]
+    assert len(tool_events) == 1
+    assert tool_events[0]["name"] == "add"
+
+    # 应该继续循环并完成
+    assert events[-1]["stop_reason"] == "completed"
+
+
+def test_stream_text_without_finish_reason_returns_incomplete() -> None:
+    """流式文本没有finish_reason时应返回incomplete。"""
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(content="partial answer")],  # 无finish_reason
+    ])
+
+    events = list(Agent(llm=model, tools=[]).run_stream("question"))
+
+    assert events[-1]["stop_reason"] == "incomplete"
+    assert events[-1]["content"] == "partial answer"
+
+
+def test_stream_multi_tool_request_executes_all_in_order() -> None:
+    """一条消息中多个工具调用按索引顺序执行。"""
+    calls = []
+
+    @tool
+    def first(x: int) -> int:
+        calls.append(("first", x))
+        return x
+
+    @tool
+    def second(x: int) -> int:
+        calls.append(("second", x))
+        return x
+
+    model = ScriptedStreamingChatModel([], [
+        [StreamChunk(
+            tool_calls=[
+                ToolCallDelta(1, "c2", "second", '{"x":'),
+                ToolCallDelta(0, "c1", "first", '{"x":'),
+            ],
+        ),
+        StreamChunk(
+            tool_calls=[
+                ToolCallDelta(0, arguments="1}"),
+                ToolCallDelta(1, arguments="2}"),
+            ],
+            finish_reason="tool_calls",
+        )],
+        [StreamChunk(content="done", finish_reason="stop")],
+    ])
+
+    events = list(Agent(llm=model, tools=[first, second]).run_stream("question"))
+
+    # 按索引顺序执行
+    assert calls == [("first", 1), ("second", 2)]
+    # 验证事件顺序
+    tool_events = [e for e in events if e["type"] == "tool_call"]
+    assert [e["name"] for e in tool_events] == ["first", "second"]

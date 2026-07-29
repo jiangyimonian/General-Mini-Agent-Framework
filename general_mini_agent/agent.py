@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
+from .agent_protocol import AgentStopReason
 from .context import ContextBudgetExceeded, ContextPolicy
 from .events import EventSink, RunContext, RunEventEmitter
 from .llm import ChatModel, ModelRequestError, ToolCallDelta
@@ -23,17 +24,8 @@ from .tools import (
     ToolRegistry,
 )
 
-# ─── 结果类型 ───────────────────────────────────────────────
-
-
-AgentStopReason = Literal[
-    "completed",
-    "max_iterations",
-    "model_error",
-    "incomplete",
-    "context_budget_exceeded",
-    "memory_error",
-]
+# Re-export AgentStopReason for backward compatibility
+__all__ = ["AgentStopReason"]
 
 
 class TraceEvent(TypedDict):

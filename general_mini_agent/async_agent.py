@@ -11,7 +11,6 @@ from typing import Any
 from .agent import (
     DEFAULT_SYSTEM_PROMPT,
     AgentResult,
-    AgentStopReason,
     DoneEvent,
     ModelErrorEvent,
     ObservationEvent,
@@ -21,6 +20,7 @@ from .agent import (
     _AccumulatedToolCall,
     _ToolCallAccumulator,
 )
+from .agent_protocol import AgentStopReason
 from .async_llm import AsyncChatModel
 from .async_tools import AsyncToolRegistry
 from .context import ContextBudgetExceeded, ContextPolicy

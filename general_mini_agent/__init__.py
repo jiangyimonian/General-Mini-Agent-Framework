@@ -1,6 +1,7 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-from .agent import Agent, AgentConfig, AgentResult, AgentStopReason, StreamEvent, TraceEvent
+from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
+from .agent_protocol import AgentStopReason
 from .async_agent import AsyncAgent
 from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
 from .async_tools import AsyncToolRegistry

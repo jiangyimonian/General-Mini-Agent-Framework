@@ -6,7 +6,8 @@ from collections.abc import Callable, Generator, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, TypedDict
 
-from .agent import Agent, AgentStopReason, StreamEvent
+from .agent import Agent, StreamEvent
+from .agent_protocol import AgentStopReason
 from .events import EventSink, RunContext, RunEventEmitter
 
 SOLVER_PROMPT = """你是一个严谨的问题求解者。请分析问题并给出你的答案。

@@ -226,7 +226,7 @@ class LLMResponse:
 
 字段放在已有默认字段之后，现有位置参数和关键字构造继续有效。内置 `LLM` 和 `AsyncLLM` 从 OpenAI-compatible `choices[0].finish_reason` 填充该字段；第三方 `ChatModel` 可以继续不提供结束原因。
 
-`normalize_response()` 将空字符串结束原因规范化为 `None`，但不会把供应商返回的未知非空原因改写成 `stop`。
+`normalize_response()` 处理的是已经完整返回的非流式 `LLMResponse`。当旧 `ChatModel` 返回文本、没有工具调用且结束原因为空时，它为内部 `AssistantTurn` 使用兼容的 `stop`；供应商返回的未知非空原因不得改写。`StreamingTurnAccumulator` 不使用这个兼容分支：流式文本缺少结束帧时仍保留空结束原因并返回 `incomplete`。
 
 参数规则：
 
@@ -328,7 +328,8 @@ return max_iterations_result()
 | `tool_calls`，但没有调用 | 协议错误 | `model_error` |
 | 无文本、无工具、`stop` | 空响应协议错误 | `model_error` |
 | 未知的非空结束原因且无工具 | 保守终止 | `incomplete` |
-| 缺失结束原因、无工具但有文本 | 兼容旧 `ChatModel`，正常返回 | `completed` |
+| 非流式旧模型缺失结束原因、无工具但有文本 | 规范化为兼容 `stop` | `completed` |
+| 流式响应缺失结束原因、无工具但有文本 | 结束帧不完整 | `incomplete` |
 | 缺失结束原因、无文本且无工具 | 空响应协议错误 | `model_error` |
 | 模型传输失败 | 终止 | `model_error` |
 | 达到循环上限 | 终止 | `max_iterations` |
@@ -348,7 +349,7 @@ Literal[
 
 更具体的原因写入 trace `error_code`，包括 `model_request_failed`、`stream_protocol_error`、`invalid_model_response`、`missing_tool_calls` 和 `empty_model_response`。
 
-缺失结束原因的兼容分支只服务于没有该字段的旧 `ChatModel`。内置模型客户端必须保留服务端返回的结束原因，因此真实 API 的 `length` 或 `content_filter` 不会落入兼容完成分支。
+缺失结束原因的兼容分支只服务于没有该字段的旧非流式 `ChatModel`。内置模型客户端必须保留服务端返回的结束原因，因此真实 API 的 `length` 或 `content_filter` 不会落入兼容完成分支；流式模型也不能依赖该兼容行为掩盖缺失的终止帧。
 
 ## 工具执行协议
 

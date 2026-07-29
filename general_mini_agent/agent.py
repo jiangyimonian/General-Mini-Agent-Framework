@@ -24,9 +24,6 @@ from .tools import (
     ToolRegistry,
 )
 
-# Re-export AgentStopReason for backward compatibility
-__all__ = ["AgentStopReason"]
-
 
 class TraceEvent(TypedDict):
     type: str

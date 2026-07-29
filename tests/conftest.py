@@ -49,3 +49,44 @@ class ScriptedStreamingChatModel(ScriptedChatModel):
         if isinstance(stream, Exception):
             raise stream
         yield from stream
+
+
+def assert_valid_tool_transcript(messages):
+    """验证消息序列的工具调用完整性。
+
+    规则：
+    1. assistant 消息中的每个 tool_call 都必须被后续的 tool 消息响应
+    2. tool 消息必须在所有工具调用发出后才能出现
+    3. 所有挂起的工具调用必须在消息序列结束时全部完成
+    """
+    pending = set()
+    for index, message in enumerate(messages):
+        if message["role"] == "assistant":
+            # assistant 消息不能打断挂起的工具调用
+            assert not pending, f"assistant interrupted pending tools at {index}"
+            # 记录所有工具调用 ID
+            for call in message.get("tool_calls", []):
+                assert call["id"] not in pending
+                pending.add(call["id"])
+        elif message["role"] == "tool":
+            # tool 消息必须对应挂起的工具调用
+            assert message["tool_call_id"] in pending
+            pending.remove(message["tool_call_id"])
+        else:
+            # user 或 system 消息必须在所有工具调用完成后
+            assert not pending
+    # 所有工具调用必须完成
+    assert not pending
+
+
+class StrictScriptedChatModel(ScriptedChatModel):
+    """严格验证工具消息序列的脚本模型"""
+
+    def chat(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
+        assert_valid_tool_transcript(messages)
+        return super().chat(messages, tools=tools)

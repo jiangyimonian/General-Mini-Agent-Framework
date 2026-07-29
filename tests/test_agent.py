@@ -740,6 +740,46 @@ def test_second_model_call_receives_tool_result() -> None:
     }
 
 
+def test_two_tools_in_one_turn_builds_canonical_message_sequence() -> None:
+    """验证多工具调用的消息序列符合协议规范：一次 assistant 包含所有工具调用，然后所有工具结果"""
+    from conftest import StrictScriptedChatModel
+
+    model = StrictScriptedChatModel([
+        LLMResponse(
+            content="use both tools",
+            tool_calls=[
+                ToolCall("c1", "add", {"a": 2, "b": 3}),
+                ToolCall("c2", "multiply", {"a": 4, "b": 5}),
+            ],
+        ),
+        LLMResponse(content="done", tool_calls=None),
+    ])
+
+    result = Agent(
+        llm=model,
+        tools=[
+            Tool(lambda a, b: a + b, name="add"),
+            Tool(lambda a, b: a * b, name="multiply"),
+        ],
+    ).run("calculate")
+
+    assert result.content == "done"
+    # 验证第二次模型调用收到正确消息序列：
+    # [system, user, assistant(tool_calls=[c1, c2]), tool(c1), tool(c2)]
+    second_call_messages = model.calls[1][0]
+    assert len(second_call_messages) == 5
+    assert second_call_messages[0]["role"] == "system"
+    assert second_call_messages[1]["role"] == "user"
+    assert second_call_messages[2]["role"] == "assistant"
+    assert len(second_call_messages[2]["tool_calls"]) == 2
+    assert second_call_messages[2]["tool_calls"][0]["id"] == "c1"
+    assert second_call_messages[2]["tool_calls"][1]["id"] == "c2"
+    assert second_call_messages[3]["role"] == "tool"
+    assert second_call_messages[3]["tool_call_id"] == "c1"
+    assert second_call_messages[4]["role"] == "tool"
+    assert second_call_messages[4]["tool_call_id"] == "c2"
+
+
 def test_agent_config_is_exported_from_core() -> None:
     from general_mini_agent import AgentConfig
 

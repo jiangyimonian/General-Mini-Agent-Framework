@@ -7,7 +7,18 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, NotRequired, TypedDict
 
-from .agent_protocol import AgentStopReason
+from .agent_protocol import (
+    AgentStopReason,
+    AssistantTurn,
+    ToolOutcome,
+    TurnDecision,
+    append_assistant_turn,
+    append_tool_outcomes,
+    build_tool_trace,
+    classify_turn,
+    clean_final_content,
+    invalid_arguments_result,
+)
 from .context import ContextBudgetExceeded, ContextPolicy
 from .events import EventSink, RunContext, RunEventEmitter
 from .llm import ChatModel, ModelRequestError, ToolCallDelta
@@ -359,79 +370,45 @@ class Agent:
 
             self._accumulate_usage(total_usage, response.usage)
 
-            # 情况 1：LLM 要求调用工具
-            if response.tool_calls:
-                for tc in response.tool_calls:
-                    execution = self.registry.execute(tc.name, tc.arguments)
-                    obs = execution.content
-                    trace_event: TraceEvent = {
-                        "type": "tool_call",
-                        "iteration": iteration,
-                        "thought": response.content or "",
-                        "tool": tc.name,
-                        "arguments": tc.arguments,
-                        "observation": obs,
-                    }
-                    if execution.error_code is not None:
-                        trace_event["error_code"] = execution.error_code
-                    trace.append(trace_event)
+            # 使用协议接口处理响应
+            turn = AssistantTurn.from_response(response)
 
-                    self._call_hook("on_tool_call", trace[-1])
-
-                    messages.append({
-                        "role": "assistant",
-                        "content": response.content or "",
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {
-                                    "name": tc.name,
-                                    "arguments": json.dumps(tc.arguments),
-                                },
-                            }
-                        ],
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": obs,
-                    })
-
-            # 情况 2：文本回复（无 tool call）→ 最终答案，直接结束
-            if response.content and not response.tool_calls:
-                content = response.content
-                clean_content = (
-                    content.replace("[FINAL]", "")
-                    .replace("Final Answer:", "")
-                    .replace("最终答案：", "")
-                    .replace("最终答案:", "")
-                    .strip()
-                )
-                trace.append({
-                    "type": "final",
-                    "iteration": iteration,
-                    "thought": content,
-                    "final_answer": clean_content,
-                })
-                self._call_hook("on_final", trace[-1])
-                self._commit_exchange(user_input, clean_content)
-                emitter.emit("run_finished", {"stop_reason": "completed", "answer": clean_content})
-                return AgentResult(
-                    content=clean_content,
-                    trace=trace,
-                    usage=total_usage,
-                    iterations=iteration + 1,
-                    run_id=emitter.run_id,
-                )
-
-            # 情况 3：response 既无 content 也无 tool_calls（极少数情况）
-            if not response.content and not response.tool_calls:
+            # 检查是否为空响应（旧版兼容）
+            if not turn.content and not turn.tool_calls:
                 messages.append({
                     "role": "assistant",
                     "content": "（空响应，请继续）",
                 })
                 continue
+
+            append_assistant_turn(messages, turn)
+            decision = classify_turn(turn)
+
+            if decision.action == "continue":
+                # 执行所有工具调用
+                outcomes = []
+                for index, call in enumerate(turn.tool_calls):
+                    execution = (
+                        invalid_arguments_result(call)
+                        if call.arguments is None
+                        else self.registry.execute(call.name, call.arguments)
+                    )
+                    outcomes.append(ToolOutcome(call, execution))
+                    trace_event = build_tool_trace(iteration, turn, index, call, execution)
+                    trace.append(trace_event)
+                    self._call_hook("on_tool_call", dict(trace_event))
+                append_tool_outcomes(messages, outcomes)
+                continue
+
+            if decision.action == "complete":
+                return self._result_from_decision(
+                    decision, turn, trace, total_usage, iteration, emitter, user_input
+                )
+
+            if decision.action == "stop_error":
+                return self._result_from_decision(
+                    decision, turn, trace, total_usage, iteration, emitter, user_input
+                )
 
         # 超时返回
         trace.append({
@@ -809,3 +786,64 @@ class Agent:
         hook = self.hooks.get(name)
         if hook:
             hook(data)
+
+    def _result_from_decision(
+        self,
+        decision: TurnDecision,
+        turn: AssistantTurn,
+        trace: list[TraceEvent],
+        usage: dict[str, int],
+        iteration: int,
+        emitter: RunEventEmitter,
+        user_input: str,
+    ) -> AgentResult:
+        """集中处理 decision 的结果创建和 run_finished 事件发射"""
+        if decision.action == "complete":
+            clean_content = clean_final_content(turn.content or "")
+            trace.append({
+                "type": "final",
+                "iteration": iteration,
+                "thought": turn.content or "",
+                "final_answer": clean_content,
+            })
+            self._call_hook("on_final", trace[-1])
+            self._commit_exchange(user_input, clean_content)
+            emitter.emit("run_finished", {"stop_reason": "completed", "answer": clean_content})
+            return AgentResult(
+                content=clean_content,
+                trace=trace,
+                usage=usage,
+                iterations=iteration + 1,
+                run_id=emitter.run_id,
+            )
+
+        if decision.action == "stop_error":
+            trace.append({
+                "type": "model_error",
+                "iteration": iteration,
+                "message": decision.message or "unknown error",
+            })
+            emitter.emit(
+                "run_finished",
+                {"stop_reason": decision.stop_reason or "model_error", "error": decision.message}
+            )
+            return AgentResult(
+                content="",
+                trace=trace,
+                usage=usage,
+                iterations=iteration,
+                stop_reason=decision.stop_reason or "model_error",
+                error=decision.message,
+                run_id=emitter.run_id,
+            )
+
+        # 兜底：不应到达这里
+        return AgentResult(
+            content="",
+            trace=trace,
+            usage=usage,
+            iterations=iteration,
+            stop_reason="model_error",
+            error=f"unexpected decision action: {decision.action}",
+            run_id=emitter.run_id,
+        )

@@ -491,8 +491,8 @@ python demo/export_demo.py debate
 
 ```bash
 python -m pytest tests -v
-python -m compileall -q general_mini_agent core demo tests
-ruff check general_mini_agent core tests demo
+python -m compileall -q general_mini_agent demo tests
+ruff check general_mini_agent tests demo
 ```
 
 ## 开发文档

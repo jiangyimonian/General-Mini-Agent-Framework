@@ -1004,14 +1004,18 @@ class TestCrossPathParity:
         stream_model = ScriptedStreamingChatModel([], [
             [StreamChunk(content="filtered", finish_reason="content_filter")],
         ])
-        stream_result = list(Agent(llm=stream_model, tools=[], memory=stream_memory).run_stream("question"))[-1]
+        stream_result = list(
+            Agent(llm=stream_model, tools=[], memory=stream_memory).run_stream("question")
+        )[-1]
 
         # 异步非流式
         async_memory = InMemoryConversation()
         async_model = ScriptedAsyncChatModel([
             LLMResponse(content="filtered", tool_calls=None, finish_reason="content_filter"),
         ])
-        async_result = asyncio.run(AsyncAgent(llm=async_model, tools=[], memory=async_memory).run_async("question"))
+        async_result = asyncio.run(
+            AsyncAgent(llm=async_model, tools=[], memory=async_memory).run_async("question")
+        )
 
         # 异步流式
         async_stream_memory = InMemoryConversation()
@@ -1123,4 +1127,6 @@ class TestCrossPathParity:
         ]:
             content = result["content"] if isinstance(result, dict) else result.content
             assert content == "original", f"{name}: result content should not be mutated"
-            assert memory.get_context()[1]["content"] == "original", f"{name}: stored content should not be mutated"
+            assert memory.get_context()[1]["content"] == "original", (
+                f"{name}: stored content should not be mutated"
+            )

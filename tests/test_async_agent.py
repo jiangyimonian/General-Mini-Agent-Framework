@@ -587,7 +587,9 @@ class TestAsyncAgentProtocolMigration:
 
         memory = InMemoryConversation()
         model = MockAsyncLLM([
-            LLMResponse(content="partial answer", tool_calls=None, finish_reason="length", usage={}),
+            LLMResponse(
+                content="partial answer", tool_calls=None, finish_reason="length", usage={}
+            ),
         ])
 
         async def run():
@@ -745,7 +747,9 @@ class TestAsyncAgentProtocolMigration:
 
         memory = InMemoryConversation()
         model = MockAsyncLLM([
-            LLMResponse(content="filtered", tool_calls=None, finish_reason="content_filter", usage={}),
+            LLMResponse(
+                content="filtered", tool_calls=None, finish_reason="content_filter", usage={}
+            ),
         ])
 
         async def run():

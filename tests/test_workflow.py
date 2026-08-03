@@ -733,9 +733,9 @@ class TestWorkflowAdapters:
 
     async def test_agent_node_converts_result(self) -> None:
         """AgentNode 转换结果。"""
+        from demo.scripted_models import ScriptedChatModel, agent_with_tool_response
         from general_mini_agent.agent import Agent
         from general_mini_agent.workflow_adapters import AgentNode
-        from demo.scripted_models import ScriptedChatModel, agent_with_tool_response
 
         collector = EventCollector()
 
@@ -751,9 +751,9 @@ class TestWorkflowAdapters:
 
     async def test_agent_node_rejects_non_string_input(self) -> None:
         """AgentNode 拒绝非字符串输入。"""
+        from demo.scripted_models import ScriptedChatModel
         from general_mini_agent.agent import Agent
         from general_mini_agent.workflow_adapters import AgentNode
-        from demo.scripted_models import ScriptedChatModel
 
         collector = EventCollector()
 
@@ -769,10 +769,10 @@ class TestWorkflowAdapters:
 
     async def test_debate_node_converts_verdict(self) -> None:
         """DebateNode 转换 verdict。"""
+        from demo.scripted_models import ScriptedChatModel, debate_responses
         from general_mini_agent.agent import Agent
         from general_mini_agent.debate import create_debate
         from general_mini_agent.workflow_adapters import DebateNode
-        from demo.scripted_models import ScriptedChatModel, debate_responses
 
         collector = EventCollector()
 
@@ -802,10 +802,10 @@ class TestWorkflowAdapters:
 
     async def test_debate_node_rejects_non_string_input(self) -> None:
         """DebateNode 拒绝非字符串输入。"""
+        from demo.scripted_models import ScriptedChatModel
         from general_mini_agent.agent import Agent
         from general_mini_agent.debate import create_debate
         from general_mini_agent.workflow_adapters import DebateNode
-        from demo.scripted_models import ScriptedChatModel
 
         collector = EventCollector()
 

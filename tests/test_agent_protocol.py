@@ -3,11 +3,9 @@
 import pytest
 
 from general_mini_agent.agent_protocol import (
-    AgentStopReason,
     AssistantTurn,
     ToolOutcome,
     TurnDecision,
-    TurnAction,
     append_assistant_turn,
     append_tool_outcomes,
     build_incomplete_trace,
@@ -327,7 +325,7 @@ class TestStreamingTurnAccumulator:
     def test_missing_calls_with_tool_calls_finish_reason_raises_error(self):
         """finish_reason 为 tool_calls 但无调用应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(finish_reason="tool_calls"))
@@ -340,7 +338,7 @@ class TestStreamingTurnAccumulator:
     def test_conflicting_tool_call_id_raises_error(self):
         """工具调用 ID 冲突应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(
@@ -358,7 +356,7 @@ class TestStreamingTurnAccumulator:
     def test_conflicting_tool_call_name_raises_error(self):
         """工具调用名称冲突应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(
@@ -376,7 +374,7 @@ class TestStreamingTurnAccumulator:
     def test_missing_identity_raises_error(self):
         """工具调用缺少 ID 或名称应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(

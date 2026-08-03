@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from .llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
+from .llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall
 from .tools import ToolExecutionResult
 
 # ─── 类型定义 ───────────────────────────────────────────────

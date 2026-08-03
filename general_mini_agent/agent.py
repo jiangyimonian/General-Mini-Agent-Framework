@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from .agent_protocol import (
     AgentStopReason,
@@ -91,7 +90,6 @@ from .long_term_memory import (
 from .tools import (
     Tool,
     ToolAuthorizationPolicy,
-    ToolExecutionResult,
     ToolRegistry,
 )
 

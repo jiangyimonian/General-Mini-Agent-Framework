@@ -9,7 +9,13 @@ from conftest import ScriptedChatModel, ScriptedStreamingChatModel
 
 from general_mini_agent.agent import Agent
 from general_mini_agent.context import ContextBudgetExceeded
-from general_mini_agent.llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
+from general_mini_agent.llm import (
+    LLMResponse,
+    ModelRequestError,
+    StreamChunk,
+    ToolCall,
+    ToolCallDelta,
+)
 from general_mini_agent.long_term_memory import (
     MemoryNamespace,
     MemoryQuery,

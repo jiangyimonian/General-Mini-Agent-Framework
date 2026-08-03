@@ -22,10 +22,8 @@ Usage:
 from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
 
-from general_mini_agent import Agent, LLM, LLMConfig, tool
+from general_mini_agent import LLM, Agent, LLMConfig, tool
 
 
 @tool(description="Evaluate a simple integer addition")

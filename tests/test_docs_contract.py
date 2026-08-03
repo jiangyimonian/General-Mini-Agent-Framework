@@ -220,3 +220,17 @@ def test_releasing_manual_exists_and_contains_key_steps() -> None:
     assert "twine check" in releasing
     assert "git tag" in releasing
     assert "CI 失败" in releasing or "CI失败" in releasing
+
+
+def test_live_smoke_is_explicit_and_contains_no_real_key() -> None:
+    """Live smoke 脚本必须显式启用且不包含真实密钥。"""
+    smoke = Path("demo/live_agent_smoke.py").read_text(encoding="utf-8")
+
+    # 必须从环境变量读取密钥
+    assert "GMAF_API_KEY" in smoke
+    # 必须使用 Agent 和工具
+    assert "Agent(" in smoke
+    assert "@tool" in smoke
+    assert "calculator" in smoke
+    # 不能包含硬编码密钥
+    assert "sk-" not in smoke

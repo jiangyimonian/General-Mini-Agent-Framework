@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-08-03
+
+### 新增
+
+- 标准回合协议：同步、流式和异步路径共同遵守的统一消息协议
+- `AssistantTurn`、`ToolOutcome`、`TurnDecision` 内部数据结构
+- `StreamingTurnAccumulator` 流式回合累积器
+- 多工具调用按原始顺序执行，一条 assistant 消息对应多个 tool results
+- `finish_reason` 语义：`stop`、`length`、`content_filter` 正确映射到终止状态
+- 空响应和协议错误返回 `model_error`，不再伪造消息重试
+- 参数解析失败返回 `invalid_arguments`，模型可修正重试
+- 默认 system prompt 改为原生工具调用导向，不再要求文本 ReAct 格式
+
+### 变更
+
+- 同步、流式和异步路径通过统一协议函数，保证消息顺序和终止语义一致
+- 多工具回合使用一条 assistant 消息和完整结果集合，不再交错
+- `length` 和 `content_filter` 不再报告成功，返回 `incomplete` 且不写记忆
+- 流式路径在累积完整回合后才执行工具，不提前启动
+- CI 和文档更新为使用 `general_mini_agent` 命名空间
+
+### 修复
+
+- 修复同步路径多工具调用时拆分 assistant 消息的问题
+- 修复流式路径工具调用和文本增量事件边界问题
+- 修复异步路径取消传播和记忆提交条件
+
 ## [1.0.0] - 2026-07-29
 
 ### 变更

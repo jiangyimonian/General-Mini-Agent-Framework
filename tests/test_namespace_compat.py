@@ -15,31 +15,13 @@ def test_import_from_general_mini_agent_no_warning():
         assert len(w) == 0, f"导入正式命名空间不应产生警告，但得到: {[str(x.message) for x in w]}"
 
 
-def test_import_from_core_emits_deprecation():
-    """导入 core 必须产生 DeprecationWarning。"""
-    # 清理模块缓存以确保重新导入
-    import sys
-
-    for module in list(sys.modules.keys()):
-        if module.startswith("core"):
-            del sys.modules[module]
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        from general_mini_agent import Agent  # noqa: F401
-
-        # 注意：现在 core 已经不存在，所以这里不会产生警告
-        # 这个测试需要更新，因为 core 命名空间已经被移除
-        assert len(w) == 0
-
-
 def test_object_identity_consistency():
-    """验证两个命名空间导出对象身份一致。"""
+    """验证命名空间导出对象身份一致。"""
     # 清理模块缓存以确保重新导入
     import sys
 
     for module in list(sys.modules.keys()):
-        if module.startswith("core") or module.startswith("general_mini_agent"):
+        if module.startswith("general_mini_agent"):
             del sys.modules[module]
 
     # 重新导入
@@ -69,7 +51,14 @@ def test_object_identity_consistency():
         WorkflowResult,
     )
 
-    # core 命名空间已经被移除，不再需要检查兼容性
+    # 验证所有对象可用
+    assert all((
+        LLM, Agent, AgentConfig, AgentResult, AgentStopReason,
+        AsyncAgent, AsyncChatModel, AsyncLLM, AsyncStreamingChatModel, AsyncToolRegistry,
+        ChatModel, Debate, DebateConfig, DebateResult, DebateRole,
+        LLMConfig, LLMResponse, StreamingChatModel, Tool, ToolRegistry,
+        Workflow, WorkflowNode, WorkflowResult,
+    ))
 
 
 def test_wheel_contains_both_packages():

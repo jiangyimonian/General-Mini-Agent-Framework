@@ -8,7 +8,7 @@ import pytest
 def test_readme_publishes_stable_multi_agent_scope() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "1.0.0 稳定能力" in readme
+    assert "1.1.0 稳定能力" in readme
     assert "单 Agent 同步工具调用" in readme
     assert "OpenAI 兼容" in readme
     assert "Agent.run_stream()" in readme
@@ -24,6 +24,7 @@ def test_readme_publishes_stable_multi_agent_scope() -> None:
     assert "HTML 报告" in readme
     assert "结构化工具结果" in readme
     assert "工具授权" in readme
+    assert "原生工具调用" in readme or "工具调用协议" in readme
 
 
 def test_readme_documents_async_limitations() -> None:
@@ -187,7 +188,7 @@ def test_core_exports_stable_trace_html_contracts() -> None:
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "1.0.0"',)),
+        ("pyproject.toml", ('version = "1.1.0"',)),
         ("README.md", ("显式检索", "不会自动写入")),
         (
             "demo/long_term_memory.py",

@@ -11,10 +11,10 @@ def test_pyproject_declares_core_runtime_and_dev_extra() -> None:
     assert '"ruff>=' in content
 
 
-def test_pyproject_declares_version_1_0_0() -> None:
+def test_pyproject_declares_version_1_1_0() -> None:
     content = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'version = "1.0.0"' in content
+    assert 'version = "1.1.0"' in content
 
 
 def test_ci_verifies_installed_wheel_against_project_version() -> None:
@@ -24,7 +24,7 @@ def test_ci_verifies_installed_wheel_against_project_version() -> None:
     assert 'cd "$RUNNER_TEMP"' in workflow
     assert 'installed_version = version("general-mini-agent-framework")' in workflow
     assert 'assert installed_version == os.environ["EXPECTED_VERSION"]' in workflow
-    assert "Path(core.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())" in workflow
+    assert "Path(general_mini_agent.__file__).resolve().is_relative_to(Path(sys.prefix).resolve())" in workflow
 
 
 def test_ci_actions_use_node24_releases() -> None:

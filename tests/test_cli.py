@@ -2,12 +2,49 @@
 
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from general_mini_agent.cli import do_doctor, do_init, find_project_root
 from general_mini_agent.config import FrameworkConfig
+
+
+def test_do_run_uses_non_streaming_result(capsys):
+    """CLI run uses Agent.run() and prints its final content."""
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            pass
+
+        def run(self, task):
+            assert task == "hello"
+            return SimpleNamespace(content="answer")
+
+        def run_stream(self, task):
+            return [{"type": "final_answer", "content": "wrong path"}]
+
+    config = SimpleNamespace(
+        api_key="test-key",
+        base_url="https://example.com/v1",
+        model="test-model",
+        timeout=60.0,
+        max_retries=0,
+    )
+
+    with (
+        patch("general_mini_agent.cli.FrameworkConfig.load", return_value=config),
+        patch("general_mini_agent.LLMConfig"),
+        patch("general_mini_agent.LLM", return_value=object()),
+        patch("general_mini_agent.Agent", FakeAgent),
+        patch("general_mini_agent.InMemoryConversation", return_value=object()),
+    ):
+        from general_mini_agent.cli import do_run
+
+        assert do_run("hello", workspace=Path.cwd()) == 0
+
+    assert "回答:\nanswer" in capsys.readouterr().out
 
 
 def test_find_project_root():

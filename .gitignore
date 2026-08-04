@@ -21,6 +21,7 @@ env/
 .env
 .env.*
 !.env.example
+.gmaf.toml
 
 # IDE and editor files
 .vscode/
@@ -43,6 +44,7 @@ chroma_db/
 
 # Test and coverage outputs
 .pytest_cache/
+.pytest-tmp*/
 htmlcov/
 .coverage
 coverage.xml

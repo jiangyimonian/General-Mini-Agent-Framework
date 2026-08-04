@@ -79,6 +79,10 @@ from .tools import (
     ToolRegistry,
     tool,
 )
+from .tools_project import (
+    ToolRuntimeContext,
+    create_project_tools,
+)
 from .trace import (
     compare_traces_to_html,
     debate_to_html,
@@ -226,4 +230,7 @@ __all__ = [
     # 日志
     "get_logger",
     "safe_log_fields",
+    # 项目工具
+    "ToolRuntimeContext",
+    "create_project_tools",
 ]

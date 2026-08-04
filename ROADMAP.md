@@ -1,23 +1,24 @@
 # General Mini Agent Framework 路线图
 
-`1.1.0` 已建立同步、流式和异步路径的标准回合协议。
+`1.1.2` 已完成权限与安全边界系统的实现。
 路线图只记录尚未稳定或仍需实现的能力；当前稳定能力以 [README.md](README.md) 为准。
 
 ## 1.1.x 产品化路线
 
-### 1.1.1 项目工具集
+### 1.1.1 项目工具集 ✓ 已完成
 
 - 文件工具：`read_file`、`list_files`/`glob_files`、`search_text`
 - 变更工具：`write_file`、`edit_file`（要求显式启用 mutation 能力）
 - 命令工具：`run_command`（要求显式启用 execute 能力）
 - 共享 `ToolRuntimeContext`，路径必须位于 workspace
 
-### 1.1.2 权限与安全边界
+### 1.1.2 权限与安全边界 ✓ 已完成
 
 - 授权协议：`allow`、`deny`、`ask`
 - 风险类别：`read`、`write`、`execute`、`external`
 - 结构化权限请求事件，不直接调用 `input()`
 - 路径和能力边界检查
+- 可组合策略框架：`AllowAllPolicy`、`DenyAllPolicy`、`RiskBasedPolicy`、`CompositePolicy` 等
 
 ### 1.1.3 即装即用 CLI
 

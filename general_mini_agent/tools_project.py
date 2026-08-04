@@ -11,6 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .permissions import (
+    PermissionPolicy,
+    RiskCategory,
+    ToolPermissionRequest,
+    ToolPermissionResponse,
+)
 from .tools import JSONValue, Tool, tool
 
 
@@ -34,6 +40,79 @@ class ToolRuntimeContext:
     command_timeout: float = 30.0
     # Maximum command output bytes (default: 100KB)
     max_command_output: int = 102_400
+
+
+def get_risk_category_for_tool(tool_name: str) -> RiskCategory:
+    """Get risk category for a project tool by name."""
+    if tool_name in ("read_file", "list_files", "glob_files", "search_text"):
+        return "read"
+    if tool_name in ("write_file", "edit_file"):
+        return "write"
+    if tool_name == "run_command":
+        return "execute"
+    return "external"
+
+
+class ProjectToolBoundaryPolicy:
+    """Project tool path and capability boundary check policy.
+
+    Validates tool calls stay within configured permissions and path boundaries.
+    """
+
+    def __init__(self, context: ToolRuntimeContext):
+        self.context = context
+
+    def evaluate(self, request: ToolPermissionRequest) -> ToolPermissionResponse:
+        # Capability boundary check
+        if request.tool_name in ("read_file", "list_files", "glob_files", "search_text"):
+            if not self.context.allow_read:
+                return ToolPermissionResponse(
+                    action="deny",
+                    reason="read operations are disabled by policy",
+                )
+        elif request.tool_name in ("write_file", "edit_file"):
+            if not self.context.allow_write:
+                return ToolPermissionResponse(
+                    action="deny",
+                    reason="write operations are disabled by policy",
+                )
+        elif request.tool_name == "run_command":
+            if not self.context.allow_execute:
+                return ToolPermissionResponse(
+                    action="deny",
+                    reason="command execution is disabled by policy",
+                )
+
+        # Path boundary check
+        path_arg = request.arguments.get("path")
+        if path_arg is not None and isinstance(path_arg, str):
+            try:
+                resolve_path(self.context.workspace, path_arg)
+            except ValueError:
+                return ToolPermissionResponse(
+                    action="deny",
+                    reason=f"path '{path_arg}' is outside workspace boundary",
+                )
+
+        return ToolPermissionResponse(
+            action="allow",
+            reason="within workspace and permission boundaries",
+        )
+
+
+def create_project_tool_policy(
+    context: ToolRuntimeContext,
+    base_policy: PermissionPolicy | None = None,
+) -> PermissionPolicy:
+    """Create project tool permission policy.
+
+    Combines boundary check policy with optional base policy.
+    """
+    boundary_policy = ProjectToolBoundaryPolicy(context)
+    if base_policy is None:
+        return boundary_policy
+    from .permissions import CompositePolicy
+    return CompositePolicy([boundary_policy, base_policy])
 
 
 def resolve_path(workspace: Path, path: str) -> Path:

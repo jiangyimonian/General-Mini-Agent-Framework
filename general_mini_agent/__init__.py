@@ -62,6 +62,20 @@ from .long_term_memory import (
     create_memory_record,
 )
 from .memory import ConversationMemory, InMemoryConversation
+from .permissions import (
+    AllowAllPolicy,
+    AskPolicy,
+    CompositePolicy,
+    ConditionalPolicy,
+    DenyAllPolicy,
+    PermissionPolicy,
+    PermissionPolicyToAuthorizationAdapter,
+    RiskBasedPolicy,
+    ToolAllowlistPolicy,
+    ToolBlocklistPolicy,
+    ToolPermissionRequest,
+    ToolPermissionResponse,
+)
 from .providers import (
     DeepSeekAdapter,
     ModelCapabilityError,
@@ -80,8 +94,11 @@ from .tools import (
     tool,
 )
 from .tools_project import (
+    ProjectToolBoundaryPolicy,
     ToolRuntimeContext,
+    create_project_tool_policy,
     create_project_tools,
+    get_risk_category_for_tool,
 )
 from .trace import (
     compare_traces_to_html,
@@ -233,4 +250,20 @@ __all__ = [
     # 项目工具
     "ToolRuntimeContext",
     "create_project_tools",
+    "create_project_tool_policy",
+    "get_risk_category_for_tool",
+    "ProjectToolBoundaryPolicy",
+    # 权限与安全边界
+    "AllowAllPolicy",
+    "AskPolicy",
+    "CompositePolicy",
+    "ConditionalPolicy",
+    "DenyAllPolicy",
+    "PermissionPolicy",
+    "PermissionPolicyToAuthorizationAdapter",
+    "RiskBasedPolicy",
+    "ToolAllowlistPolicy",
+    "ToolBlocklistPolicy",
+    "ToolPermissionRequest",
+    "ToolPermissionResponse",
 ]

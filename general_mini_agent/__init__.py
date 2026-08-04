@@ -1,5 +1,7 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
+__version__ = "1.1.3"
+
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
 from .async_agent import AsyncAgent

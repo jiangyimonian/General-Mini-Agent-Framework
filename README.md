@@ -1,10 +1,38 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.2`
-在 `1.1.1` 的项目工具集之上，提供了完整的权限与安全边界系统。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.3`
+在 `1.1.2` 的权限与安全边界之上，提供了即装即用的 CLI 工具。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
+
+## 1.1.3 稳定能力
+
+### 即装即用 CLI
+
+提供 `gmaf` 命令行工具，支持：
+
+- `gmaf --version` - 显示版本
+- `gmaf doctor` - 检查环境和配置
+- `gmaf init` - 初始化项目配置
+- `gmaf run [任务]` - 运行单次任务
+- `gmaf chat` - 交互式聊天
+
+配置优先级：命令行 > 项目配置 (./.gmaf.toml) > 用户配置 (~/.config/gmaf/config.toml) > 环境变量 (GMAF_*) > 默认值
+
+```bash
+# 初始化项目
+gmaf init
+
+# 检查配置
+gmaf doctor
+
+# 交互式聊天
+gmaf chat
+
+# 运行单次任务
+gmaf run "读取当前目录的文件列表"
+```
 
 ## 1.1.2 稳定能力
 

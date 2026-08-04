@@ -1,6 +1,6 @@
 # General Mini Agent Framework 路线图
 
-`1.1.2` 已完成权限与安全边界系统的实现。
+`1.1.3` 已完成即装即用 CLI 的实现。
 路线图只记录尚未稳定或仍需实现的能力；当前稳定能力以 [README.md](README.md) 为准。
 
 ## 1.1.x 产品化路线
@@ -20,7 +20,7 @@
 - 路径和能力边界检查
 - 可组合策略框架：`AllowAllPolicy`、`DenyAllPolicy`、`RiskBasedPolicy`、`CompositePolicy` 等
 
-### 1.1.3 即装即用 CLI
+### 1.1.3 即装即用 CLI ✓ 已完成
 
 - `gmaf` console script
 - `--version`、`doctor`、`init`、单次任务和 `chat`

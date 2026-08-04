@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offline Debate Trace</title>
+<style>
+:root {
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --border: #2a2d3e;
+    --text: #e1e1e1;
+    --dim: #6b7280;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --cyan: #06b6d4;
+    --red: #ef4444;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    line-height: 1.6;
+    padding: 2rem;
+    max-width: 900px;
+    margin: 0 auto;
+}
+.header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+.header h1 { font-size: 1.5rem; color: var(--accent); margin-bottom: .5rem; }
+.run-id { font-size: .75rem; color: var(--dim); font-family: var(--mono); }
+
+/* Filters */
+.filters {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1rem;
+    background: var(--card);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    align-items: center;
+}
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+}
+.filter-group label {
+    font-size: .75rem;
+    color: var(--dim);
+}
+.filter-group select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: .25rem .5rem;
+    font-size: .8rem;
+}
+.filter-group select:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+.btn-reset {
+    background: var(--border);
+    color: var(--text);
+    border: none;
+    border-radius: 4px;
+    padding: .25rem .75rem;
+    font-size: .8rem;
+    cursor: pointer;
+}
+.btn-reset:hover { background: var(--accent); }
+.result-count { font-size: .8rem; color: var(--dim); margin-left: auto; }
+
+/* Events */
+.events { margin-top: 1rem; }
+.event {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: .5rem;
+    overflow: hidden;
+}
+.event-header {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .5rem .75rem;
+    background: var(--card);
+    cursor: pointer;
+}
+.event-type {
+    font-size: .75rem;
+    font-weight: 600;
+    padding: .2rem .5rem;
+    border-radius: 4px;
+}
+.event-type.run_started { background: var(--accent); color: #fff; }
+.event-type.run_finished { background: var(--green); color: #fff; }
+.event-type.model_request_finished { background: var(--cyan); color: #000; }
+.event-type.tool_finished { background: var(--yellow); color: #000; }
+.event-type.run_finished.error { background: var(--red); color: #fff; }
+.event-seq { font-size: .7rem; color: var(--dim); }
+.event-elapsed { font-size: .7rem; color: var(--dim); margin-left: auto; }
+.event-body {
+    display: none;
+    padding: .75rem;
+    font-size: .85rem;
+    border-top: 1px solid var(--border);
+    background: rgba(0,0,0,.2);
+}
+.event.open .event-body { display: block; }
+.event-body pre {
+    font-family: var(--mono);
+    font-size: .8rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+}
+.event.hidden { display: none; }
+
+/* Stats */
+.stats {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    padding: 1rem;
+    background: var(--card);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    margin-top: 2rem;
+    flex-wrap: wrap;
+}
+.stat { text-align: center; }
+.stat-value { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+.stat-label { font-size: .7rem; text-transform: uppercase; color: var(--dim); }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>🔍 Agent Trace</h1>
+    <div class="run-id">Run: <span id="run-id"></span></div>
+</div>
+
+<div class="filters" role="search" aria-label="Filter events">
+    <div class="filter-group">
+        <label for="filter-type">Event Type</label>
+        <select id="filter-type">
+            <option value="">All</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label for="filter-run">Run ID</label>
+        <select id="filter-run">
+            <option value="">All</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label for="filter-stop">Stop Reason</label>
+        <select id="filter-stop">
+            <option value="">All</option>
+        </select>
+    </div>
+    <div class="filter-group">
+        <label for="filter-error">Errors Only</label>
+        <select id="filter-error">
+            <option value="">All</option>
+            <option value="error">Errors</option>
+        </select>
+    </div>
+    <button class="btn-reset" onclick="resetFilters()">Reset</button>
+    <div class="result-count" aria-live="polite">
+        <span id="visible-count">0</span> / <span id="total-count">0</span> events
+    </div>
+</div>
+
+<div id="events" class="events"></div>
+
+<div class="stats">
+    <div class="stat">
+        <div class="stat-value" id="event-count">-</div>
+        <div class="stat-label">Events</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value" id="total-elapsed">-</div>
+        <div class="stat-label">Total Elapsed (ms)</div>
+    </div>
+</div>
+
+<script>
+const EVENTS = [
+  {
+    "run_id": "a7e76f68-2a38-46fd-aad6-28eaea970209",
+    "parent_run_id": "de8862dd-9f58-4a51-811e-c8b939071252",
+    "sequence": 1,
+    "occurred_at": "2026-08-04 07:49:56.662501+00:00",
+    "elapsed_ms": 0.0017,
+    "type": "run_started",
+    "payload": {
+      "input": "你是一个严谨的问题求解者。请分析问题并给出你的答案。\\n\\n\\n\\n\\n## Conversation\\n\\nUser: What is the answer?"
+    }
+  },
+  {
+    "run_id": "a7e76f68-2a38-46fd-aad6-28eaea970209",
+    "parent_run_id": "de8862dd-9f58-4a51-811e-c8b939071252",
+    "sequence": 2,
+    "occurred_at": "2026-08-04 07:49:56.662531+00:00",
+    "elapsed_ms": 0.0318,
+    "type": "run_finished",
+    "payload": {
+      "stop_reason": "completed",
+      "answer": "I propose the answer is 42."
+    }
+  },
+  {
+    "run_id": "6d7ff36a-742d-4d69-a05a-c09b42e3066a",
+    "parent_run_id": "de8862dd-9f58-4a51-811e-c8b939071252",
+    "sequence": 1,
+    "occurred_at": "2026-08-04 07:49:56.662565+00:00",
+    "elapsed_ms": 0.0014,
+    "type": "run_started",
+    "payload": {
+      "input": "你是一个严格的审阅者。请检查已有回答的计算、推理、边界和假设。\\n\\n\\n\\n\\n## Conversation\\n\\nUser: What is the answer?\\n[Solver]: I propose the answer is 42."
+    }
+  },
+  {
+    "run_id": "6d7ff36a-742d-4d69-a05a-c09b42e3066a",
+    "parent_run_id": "de8862dd-9f58-4a51-811e-c8b939071252",
+    "sequence": 2,
+    "occurred_at": "2026-08-04 07:49:56.662587+00:00",
+    "elapsed_ms": 0.0235,
+    "type": "run_finished",
+    "payload": {
+      "stop_reason": "completed",
+      "answer": "I disagree, the answer should be 43."
+    }
+  },
+  {
+    "run_id": "be7383b8-2c0a-4a7a-b8ef-50334c64b2d6",
+    "parent_run_id": "de8862dd-9f58-4a51-811e-c8b939071252",
+    "sequence": 1,
+    "occurred_at": "2026-08-04 07:49:56.662622+00:00",
+    "elapsed_ms": 0.0014,
+    "type": "run_started",
+    "payload": {
+      "input": "你是一个公正的裁判。请综合所有参与者的意见并给出最终答案。\\n\\n\\n\\n\\n## Conversation\\n\\nUser: What is the answer?\\n[Solver]: I propose the answer is 42.\\n[Critic]: I disagree, the answer should be 43."
+    }
+  },
+  {
+    "run_id": "be7383b8-2c0a-4a7a-b8ef-50334c64b2d6",
+    "parent_run_id": "de8862dd-9f58-4a51-811e-c8b939071252",
+    "sequence": 2,
+    "occurred_at": "2026-08-04 07:49:56.662641+00:00",
+    "elapsed_ms": 0.0204,
+    "type": "run_finished",
+    "payload": {
+      "stop_reason": "completed",
+      "answer": "After review, I conclude the answer is 42."
+    }
+  }
+];
+const ROOT_RUN_ID = "de8862dd-9f58-4a51-811e-c8b939071252";
+
+document.getElementById('run-id').textContent = ROOT_RUN_ID;
+document.getElementById('total-count').textContent = EVENTS.length;
+document.getElementById('event-count').textContent = EVENTS.length;
+
+let totalElapsed = 0;
+EVENTS.forEach(e => {
+    if (e.elapsed_ms > totalElapsed) totalElapsed = e.elapsed_ms;
+});
+document.getElementById('total-elapsed').textContent = totalElapsed.toFixed(1);
+
+// Build filter options from data
+const typeSet = new Set();
+const runSet = new Set();
+const stopSet = new Set();
+
+EVENTS.forEach(e => {
+    typeSet.add(e.type);
+    if (e.run_id) runSet.add(e.run_id);
+    if (e.payload && e.payload.stop_reason) stopSet.add(e.payload.stop_reason);
+});
+
+function populateSelect(id, values) {
+    const sel = document.getElementById(id);
+    values.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sel.appendChild(opt);
+    });
+}
+
+populateSelect('filter-type', Array.from(typeSet).sort());
+populateSelect('filter-run', Array.from(runSet).sort());
+populateSelect('filter-stop', Array.from(stopSet).sort());
+
+// Render events
+const eventsEl = document.getElementById('events');
+
+EVENTS.forEach(event => {
+    const stopReason = event.payload && event.payload.stop_reason ? event.payload.stop_reason : '';
+    const hasError = event.payload && (
+        event.payload.error || stopReason === 'error' || stopReason === 'model_error'
+    );
+    const typeClass = event.type + (hasError ? ' error' : '');
+
+    const div = document.createElement('div');
+    div.className = 'event open';
+    div.setAttribute('data-event-type', event.type);
+    div.setAttribute('data-run-id', event.run_id || '');
+    div.setAttribute('data-stop-reason', stopReason);
+    div.setAttribute('data-error', hasError ? 'true' : 'false');
+
+    div.innerHTML = `
+        <div class="event-header" onclick="this.parentElement.classList.toggle('open')">
+            <span class="event-type ${typeClass}">${event.type}</span>
+            <span class="event-seq">#${event.sequence}</span>
+            <span class="event-elapsed">${event.elapsed_ms.toFixed(1)}ms</span>
+        </div>
+        <div class="event-body">
+            <pre>${JSON.stringify(event.payload, null, 2)}</pre>
+        </div>
+    `;
+    eventsEl.appendChild(div);
+});
+
+// Filter logic
+function applyFilters() {
+    const typeVal = document.getElementById('filter-type').value;
+    const runVal = document.getElementById('filter-run').value;
+    const stopVal = document.getElementById('filter-stop').value;
+    const errorVal = document.getElementById('filter-error').value;
+
+    const allEvents = document.querySelectorAll('.event');
+    let visible = 0;
+
+    allEvents.forEach(el => {
+        const match = true
+            && (!typeVal || el.getAttribute('data-event-type') === typeVal)
+            && (!runVal || el.getAttribute('data-run-id') === runVal)
+            && (!stopVal || el.getAttribute('data-stop-reason') === stopVal)
+            && (!errorVal || errorVal === 'error' && el.getAttribute('data-error') === 'true');
+
+        el.classList.toggle('hidden', !match);
+        if (match) visible++;
+    });
+
+    document.getElementById('visible-count').textContent = visible;
+}
+
+document.getElementById('filter-type').addEventListener('change', applyFilters);
+document.getElementById('filter-run').addEventListener('change', applyFilters);
+document.getElementById('filter-stop').addEventListener('change', applyFilters);
+document.getElementById('filter-error').addEventListener('change', applyFilters);
+
+function resetFilters() {
+    document.getElementById('filter-type').value = '';
+    document.getElementById('filter-run').value = '';
+    document.getElementById('filter-stop').value = '';
+    document.getElementById('filter-error').value = '';
+    applyFilters();
+}
+
+applyFilters();
+</script>
+</body>
+</html>

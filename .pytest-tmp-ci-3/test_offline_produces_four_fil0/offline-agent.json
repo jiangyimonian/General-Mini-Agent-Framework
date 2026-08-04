@@ -1,0 +1,29 @@
+{
+  "events": [
+    {
+      "elapsed_ms": 0.0098,
+      "occurred_at": "2026-08-04T07:53:24.153371+00:00",
+      "parent_run_id": null,
+      "payload": {
+        "input": "What is 2+2?"
+      },
+      "run_id": "770a8fc5-04b2-471c-a132-f1ffcb4b6564",
+      "sequence": 1,
+      "type": "run_started"
+    },
+    {
+      "elapsed_ms": 0.1796,
+      "occurred_at": "2026-08-04T07:53:24.153543+00:00",
+      "parent_run_id": null,
+      "payload": {
+        "answer": "The result is 4.",
+        "stop_reason": "completed"
+      },
+      "run_id": "770a8fc5-04b2-471c-a132-f1ffcb4b6564",
+      "sequence": 2,
+      "type": "run_finished"
+    }
+  ],
+  "root_run_id": "770a8fc5-04b2-471c-a132-f1ffcb4b6564",
+  "schema_version": 1
+}

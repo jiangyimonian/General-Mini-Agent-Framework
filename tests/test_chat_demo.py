@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from general_mini_agent.memory import InMemoryConversation
 from demo.chat import clear_context
+from general_mini_agent.memory import InMemoryConversation
 
 
 def test_chat_demo_uses_automatic_memory_writeback_and_context_budget() -> None:

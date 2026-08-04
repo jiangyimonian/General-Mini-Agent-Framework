@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -46,7 +45,6 @@ from .long_term_memory import (
 from .tools import (
     Tool,
     ToolAuthorizationPolicy,
-    ToolExecutionResult,
 )
 
 

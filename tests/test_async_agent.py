@@ -491,6 +491,44 @@ class TestAsyncAgentConcurrency:
 
         asyncio.run(run())
 
+    def test_same_instance_concurrent_calls_isolate_state(self) -> None:
+        """同一 AsyncAgent 实例的并发调用状态隔离。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+
+        # 共享的 LLM，会根据调用次数返回不同响应
+        class SharedLLM:
+            def __init__(self):
+                self.call_count = 0
+
+            async def chat_async(self, messages, *, tools=None):
+                self.call_count += 1
+                call_id = self.call_count
+                await asyncio.sleep(0.05)
+                return LLMResponse(
+                    content=f"response {call_id}",
+                    tool_calls=None,
+                    usage={"total_tokens": call_id},
+                )
+
+        async def run():
+            llm = SharedLLM()
+            agent = AsyncAgent(llm)
+
+            # 同一实例的两个并发调用
+            task1 = asyncio.create_task(agent.run_async("input 1"))
+            task2 = asyncio.create_task(agent.run_async("input 2"))
+            results = await asyncio.gather(task1, task2)
+
+            # 两个结果应该有不同的内容和 usage
+            assert results[0].content != results[1].content
+            assert results[0].usage != results[1].usage
+            # 每个 trace 应该是独立的
+            assert len(results[0].trace) >= 0
+            assert len(results[1].trace) >= 0
+
+        asyncio.run(run())
+
 
 class TestAsyncAgentProtocolMigration:
     """测试 AsyncAgent 迁移到协议接口后的行为。"""
@@ -498,6 +536,7 @@ class TestAsyncAgentProtocolMigration:
     def test_two_tools_in_one_turn_builds_canonical_message_sequence(self) -> None:
         """验证多工具调用的消息序列符合协议规范。"""
         from conftest import StrictScriptedAsyncChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import LLMResponse, ToolCall
         from general_mini_agent.tools import Tool
@@ -548,7 +587,9 @@ class TestAsyncAgentProtocolMigration:
 
         memory = InMemoryConversation()
         model = MockAsyncLLM([
-            LLMResponse(content="partial answer", tool_calls=None, finish_reason="length", usage={}),
+            LLMResponse(
+                content="partial answer", tool_calls=None, finish_reason="length", usage={}
+            ),
         ])
 
         async def run():
@@ -678,7 +719,6 @@ class TestAsyncAgentProtocolMigration:
     def test_model_error_does_not_commit_memory(self) -> None:
         """模型错误不提交 memory。"""
         from general_mini_agent.async_agent import AsyncAgent
-        from general_mini_agent.llm import LLMResponse
         from general_mini_agent.memory import InMemoryConversation
 
         memory = InMemoryConversation()
@@ -699,6 +739,28 @@ class TestAsyncAgentProtocolMigration:
 
         asyncio.run(run())
 
+    def test_content_filter_does_not_commit_memory(self) -> None:
+        """content_filter 结束原因不提交 memory。"""
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        model = MockAsyncLLM([
+            LLMResponse(
+                content="filtered", tool_calls=None, finish_reason="content_filter", usage={}
+            ),
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, memory=memory)
+            result = await agent.run_async("question")
+            assert result.stop_reason == "incomplete"
+            assert result.content == "filtered"
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
 
 # ─────────────────────────────────────────────────────────────
 # AsyncAgent run_stream_async 测试
@@ -711,6 +773,7 @@ class TestAsyncAgentStreaming:
     def test_interleaved_multi_tool_chunks_execute_by_index(self) -> None:
         """交叉多工具 chunks 按索引执行。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk, ToolCallDelta
 
@@ -756,6 +819,7 @@ class TestAsyncAgentStreaming:
     def test_finish_reason_stop_completes(self) -> None:
         """finish_reason=stop 正常完成。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk
 
@@ -777,6 +841,7 @@ class TestAsyncAgentStreaming:
     def test_invalid_json_arguments_returns_error(self) -> None:
         """无效 JSON 参数返回 invalid_arguments 错误。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk, ToolCallDelta
 
@@ -808,6 +873,7 @@ class TestAsyncAgentStreaming:
     def test_text_without_finish_reason_is_incomplete(self) -> None:
         """缺少 finish reason 的文本返回 incomplete。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk
 
@@ -829,8 +895,9 @@ class TestAsyncAgentStreaming:
     def test_stream_protocol_error_returns_model_error(self) -> None:
         """流协议错误返回 model_error。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
-        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
+        from general_mini_agent.llm import StreamChunk, ToolCallDelta
 
         model = ScriptedAsyncStreamingChatModel([
             [StreamChunk(
@@ -854,6 +921,7 @@ class TestAsyncAgentStreaming:
     def test_usage_snapshots_accumulated_correctly(self) -> None:
         """usage 快照正确累积。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk, ToolCallDelta
 
@@ -894,6 +962,7 @@ class TestAsyncAgentStreaming:
     def test_early_generator_close_does_not_commit_memory(self) -> None:
         """早期生成器关闭不提交 memory。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk
         from general_mini_agent.memory import InMemoryConversation
@@ -918,7 +987,6 @@ class TestAsyncAgentStreaming:
     def test_cancellation_does_not_commit_memory(self) -> None:
         """取消不提交 memory。"""
         from general_mini_agent.async_agent import AsyncAgent
-        from general_mini_agent.llm import LLMResponse
         from general_mini_agent.memory import InMemoryConversation
 
         memory = InMemoryConversation()
@@ -944,6 +1012,7 @@ class TestAsyncAgentStreaming:
     def test_max_iterations_does_not_commit_memory(self) -> None:
         """达到最大迭代不提交 memory。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk, ToolCallDelta
         from general_mini_agent.memory import InMemoryConversation
@@ -976,9 +1045,35 @@ class TestAsyncAgentStreaming:
 
         asyncio.run(run())
 
+    def test_content_filter_does_not_commit_memory(self) -> None:
+        """content_filter 结束原因不提交 memory。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import StreamChunk
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="filtered", finish_reason="content_filter")],
+        ])
+
+        async def run():
+            agent = AsyncAgent(llm=model, memory=memory)
+            events = []
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+
+            assert events[-1]["stop_reason"] == "incomplete"
+            assert events[-1]["content"] == "filtered"
+            assert len(memory.get_context()) == 0
+
+        asyncio.run(run())
+
     def test_tool_calls_presence_not_finish_reason_drives_continuation(self) -> None:
         """工具调用存在而非 finish_reason='tool_calls' 决定继续。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk, ToolCallDelta
 
@@ -1009,9 +1104,46 @@ class TestAsyncAgentStreaming:
 
         asyncio.run(run())
 
+    def test_final_hook_cannot_mutate_stored_assistant_content(self) -> None:
+        """final hook 变异不影响存储的 assistant content。"""
+        from conftest import ScriptedAsyncChatModel
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.memory import InMemoryConversation
+
+        memory = InMemoryConversation()
+        final_hooks: list[dict] = []
+
+        model = ScriptedAsyncChatModel([
+            LLMResponse(content="original answer", tool_calls=None, finish_reason="stop"),
+        ])
+
+        async def run():
+            agent = AsyncAgent(
+                llm=model,
+                memory=memory,
+                hooks={"on_final": final_hooks.append},
+            )
+            result = await agent.run_async("question")
+
+            assert result.stop_reason == "completed"
+            assert len(final_hooks) == 1
+
+            # 变异 hook 数据
+            hook_data = final_hooks[0]
+            hook_data["final_answer"] = "mutated answer"
+
+            # 验证存储的内容未改变
+            assert result.content == "original answer"
+            assert memory.get_context()[1]["content"] == "original answer"
+
+        asyncio.run(run())
+
     def test_tool_failure_allows_model_recovery(self) -> None:
         """工具失败后模型可以恢复。"""
         from conftest import ScriptedAsyncStreamingChatModel
+
         from general_mini_agent.async_agent import AsyncAgent
         from general_mini_agent.llm import StreamChunk, ToolCallDelta
 

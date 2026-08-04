@@ -8,7 +8,7 @@ import pytest
 def test_readme_publishes_stable_multi_agent_scope() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "1.0.0 稳定能力" in readme
+    assert "1.1.0 稳定能力" in readme
     assert "单 Agent 同步工具调用" in readme
     assert "OpenAI 兼容" in readme
     assert "Agent.run_stream()" in readme
@@ -24,6 +24,7 @@ def test_readme_publishes_stable_multi_agent_scope() -> None:
     assert "HTML 报告" in readme
     assert "结构化工具结果" in readme
     assert "工具授权" in readme
+    assert "原生工具调用" in readme or "工具调用协议" in readme
 
 
 def test_readme_documents_async_limitations() -> None:
@@ -187,7 +188,7 @@ def test_core_exports_stable_trace_html_contracts() -> None:
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "1.0.0"',)),
+        ("pyproject.toml", ('version = "1.1.0"',)),
         ("README.md", ("显式检索", "不会自动写入")),
         (
             "demo/long_term_memory.py",
@@ -219,3 +220,17 @@ def test_releasing_manual_exists_and_contains_key_steps() -> None:
     assert "twine check" in releasing
     assert "git tag" in releasing
     assert "CI 失败" in releasing or "CI失败" in releasing
+
+
+def test_live_smoke_is_explicit_and_contains_no_real_key() -> None:
+    """Live smoke 脚本必须显式启用且不包含真实密钥。"""
+    smoke = Path("demo/live_agent_smoke.py").read_text(encoding="utf-8")
+
+    # 必须从环境变量读取密钥
+    assert "GMAF_API_KEY" in smoke
+    # 必须使用 Agent 和工具
+    assert "Agent(" in smoke
+    assert "@tool" in smoke
+    assert "calculator" in smoke
+    # 不能包含硬编码密钥
+    assert "sk-" not in smoke

@@ -44,13 +44,13 @@ python -m pytest tests -v
 ### Lint 检查
 
 ```bash
-ruff check general_mini_agent core tests demo
+ruff check general_mini_agent tests demo
 ```
 
 ### 字节码编译检查
 
 ```bash
-python -m compileall -q general_mini_agent core demo tests
+python -m compileall -q general_mini_agent demo tests
 ```
 
 ## 发行包验证
@@ -126,7 +126,7 @@ git push origin v0.4.1
 
 **wheel 安装后导入失败**
 
-确认 `pyproject.toml` 的 `[tool.hatch.build.targets.wheel]` 正确配置了 `packages = ["general_mini_agent", "core"]`。
+确认 `pyproject.toml` 的 `[tool.hatch.build.targets.wheel]` 正确配置了 `packages = ["general_mini_agent"]`。
 
 **版本号不一致**
 

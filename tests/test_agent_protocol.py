@@ -3,11 +3,9 @@
 import pytest
 
 from general_mini_agent.agent_protocol import (
-    AgentStopReason,
     AssistantTurn,
     ToolOutcome,
     TurnDecision,
-    TurnAction,
     append_assistant_turn,
     append_tool_outcomes,
     build_incomplete_trace,
@@ -94,7 +92,9 @@ class TestClassifyTurn:
     @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "unknown", ""])
     def test_non_stop_finish_with_text_is_incomplete(self, finish_reason: str):
         """非 stop 结束原因加文本为 incomplete"""
-        turn = AssistantTurn(content="partial", tool_calls=(), finish_reason=finish_reason, usage={})
+        turn = AssistantTurn(
+            content="partial", tool_calls=(), finish_reason=finish_reason, usage={}
+        )
         decision = classify_turn(turn)
         assert decision.action == "stop_error"
         assert decision.stop_reason == "incomplete"
@@ -111,7 +111,9 @@ class TestMessageAppenders:
 
         call1 = ToolCall(id="c1", name="lookup", arguments={"q": "x"}, raw_arguments='{"q":"x"}')
         call2 = ToolCall(id="c2", name="search", arguments={"q": "y"}, raw_arguments='{"q":"y"}')
-        turn = AssistantTurn(content="thinking", tool_calls=(call1, call2), finish_reason="tool_calls", usage={})
+        turn = AssistantTurn(
+            content="thinking", tool_calls=(call1, call2), finish_reason="tool_calls", usage={}
+        )
 
         append_assistant_turn(messages, turn)
 
@@ -143,7 +145,13 @@ class TestMessageAppenders:
         messages = []
 
         # 测试解析错误的情况
-        call = ToolCall(id="c1", name="lookup", arguments=None, raw_arguments='{"invalid"', argument_error="invalid JSON")
+        call = ToolCall(
+            id="c1",
+            name="lookup",
+            arguments=None,
+            raw_arguments='{"invalid"',
+            argument_error="invalid JSON",
+        )
         turn = AssistantTurn(content=None, tool_calls=(call,), finish_reason="tool_calls", usage={})
 
         append_assistant_turn(messages, turn)
@@ -172,7 +180,13 @@ class TestInvalidArgumentsResult:
 
     def test_returns_error_code(self):
         """应返回 invalid_arguments 错误码"""
-        call = ToolCall(id="c1", name="lookup", arguments=None, raw_arguments='{"invalid"', argument_error="invalid JSON")
+        call = ToolCall(
+            id="c1",
+            name="lookup",
+            arguments=None,
+            raw_arguments='{"invalid"',
+            argument_error="invalid JSON",
+        )
         result = invalid_arguments_result(call)
         assert result.error_code == "invalid_arguments"
         assert "invalid JSON" in result.content
@@ -185,7 +199,9 @@ class TestBuildToolTrace:
         """应构建正确的 trace 字典"""
         call = ToolCall(id="c1", name="lookup", arguments={"q": "x"}, raw_arguments='{"q":"x"}')
         result = ToolExecutionResult(content="found")
-        turn = AssistantTurn(content="thinking", tool_calls=(call,), finish_reason="tool_calls", usage={})
+        turn = AssistantTurn(
+            content="thinking", tool_calls=(call,), finish_reason="tool_calls", usage={}
+        )
 
         trace = build_tool_trace(iteration=1, turn=turn, index=0, call=call, result=result)
 
@@ -204,7 +220,9 @@ class TestBuildIncompleteTrace:
     def test_builds_incomplete_dict(self):
         """应构建 incomplete trace 字典"""
         turn = AssistantTurn(content="partial", tool_calls=(), finish_reason="length", usage={})
-        decision = TurnDecision(action="stop_error", stop_reason="incomplete", message="length limit")
+        decision = TurnDecision(
+            action="stop_error", stop_reason="incomplete", message="length limit"
+        )
 
         trace = build_incomplete_trace(iteration=1, turn=turn, decision=decision)
 
@@ -219,7 +237,9 @@ class TestSafeErrorMessage:
 
     def test_uses_decision_message(self):
         """应使用 decision 的消息"""
-        decision = TurnDecision(action="stop_error", stop_reason="model_error", message="error detail")
+        decision = TurnDecision(
+            action="stop_error", stop_reason="model_error", message="error detail"
+        )
         assert safe_error_message(decision) == "error detail"
 
     def test_fallback_to_stop_reason(self):
@@ -327,7 +347,7 @@ class TestStreamingTurnAccumulator:
     def test_missing_calls_with_tool_calls_finish_reason_raises_error(self):
         """finish_reason 为 tool_calls 但无调用应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(finish_reason="tool_calls"))
@@ -340,7 +360,7 @@ class TestStreamingTurnAccumulator:
     def test_conflicting_tool_call_id_raises_error(self):
         """工具调用 ID 冲突应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(
@@ -358,7 +378,7 @@ class TestStreamingTurnAccumulator:
     def test_conflicting_tool_call_name_raises_error(self):
         """工具调用名称冲突应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(
@@ -376,7 +396,7 @@ class TestStreamingTurnAccumulator:
     def test_missing_identity_raises_error(self):
         """工具调用缺少 ID 或名称应抛出错误"""
         from general_mini_agent.agent_protocol import StreamingTurnAccumulator
-        from general_mini_agent.llm import StreamChunk, ToolCallDelta, ModelRequestError
+        from general_mini_agent.llm import ModelRequestError, StreamChunk, ToolCallDelta
 
         accumulator = StreamingTurnAccumulator()
         accumulator.add(StreamChunk(

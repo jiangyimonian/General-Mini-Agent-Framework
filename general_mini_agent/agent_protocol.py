@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from .llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall, ToolCallDelta
+from .llm import LLMResponse, ModelRequestError, StreamChunk, ToolCall
 from .tools import ToolExecutionResult
 
 # ─── 类型定义 ───────────────────────────────────────────────
@@ -325,7 +325,8 @@ class StreamingTurnAccumulator:
                 # 检查身份完整性
                 if not accumulated.id or not accumulated.name:
                     raise ModelRequestError(
-                        f"model tool call at index {accumulated.index} is missing identity metadata",
+                        f"model tool call at index {accumulated.index} is missing "
+                        "identity metadata",
                         error_code="stream_protocol_error",
                     )
                 # 通过 ToolCall.from_raw() 解析参数
@@ -339,7 +340,8 @@ class StreamingTurnAccumulator:
         # 检查 finish_reason="tool_calls" 但无调用的情况
         if self._finish_reason == "tool_calls" and not tool_calls:
             raise ModelRequestError(
-                "model ended with tool_calls but supplied no calls",
+                "model ended with tool_calls but supplied no "
+                "calls",
                 error_code="stream_protocol_error",
             )
 

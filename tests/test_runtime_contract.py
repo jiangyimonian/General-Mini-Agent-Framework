@@ -982,3 +982,151 @@ class TestCrossPathParity:
 
             assert stop_reason == "model_error", f"{name}: stop_reason should be model_error"
             assert content == "", f"{name}: content should be empty"
+
+    def test_all_paths_handle_content_filter_consistently(self) -> None:
+        """四种路径一致处理 content_filter 结束原因"""
+        from conftest import (
+            ScriptedAsyncChatModel,
+            ScriptedAsyncStreamingChatModel,
+            ScriptedChatModel,
+            ScriptedStreamingChatModel,
+        )
+
+        # 同步非流式
+        sync_memory = InMemoryConversation()
+        sync_model = ScriptedChatModel([
+            LLMResponse(content="filtered", tool_calls=None, finish_reason="content_filter"),
+        ])
+        sync_result = Agent(llm=sync_model, tools=[], memory=sync_memory).run("question")
+
+        # 同步流式
+        stream_memory = InMemoryConversation()
+        stream_model = ScriptedStreamingChatModel([], [
+            [StreamChunk(content="filtered", finish_reason="content_filter")],
+        ])
+        stream_result = list(
+            Agent(llm=stream_model, tools=[], memory=stream_memory).run_stream("question")
+        )[-1]
+
+        # 异步非流式
+        async_memory = InMemoryConversation()
+        async_model = ScriptedAsyncChatModel([
+            LLMResponse(content="filtered", tool_calls=None, finish_reason="content_filter"),
+        ])
+        async_result = asyncio.run(
+            AsyncAgent(llm=async_model, tools=[], memory=async_memory).run_async("question")
+        )
+
+        # 异步流式
+        async_stream_memory = InMemoryConversation()
+        async_stream_model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="filtered", finish_reason="content_filter")],
+        ])
+        async def run():
+            events = []
+            agent = AsyncAgent(llm=async_stream_model, tools=[], memory=async_stream_memory)
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+            return events[-1]
+        async_stream_result = asyncio.run(run())
+
+        # 验证一致性
+        for result, memory, name in [
+            (sync_result, sync_memory, "sync"),
+            (stream_result, stream_memory, "stream"),
+            (async_result, async_memory, "async"),
+            (async_stream_result, async_stream_memory, "async_stream"),
+        ]:
+            stop_reason = result["stop_reason"] if isinstance(result, dict) else result.stop_reason
+            content = result["content"] if isinstance(result, dict) else result.content
+
+            assert stop_reason == "incomplete", f"{name}: stop_reason should be incomplete"
+            assert content == "filtered", f"{name}: content should be preserved"
+            assert len(memory.get_context()) == 0, f"{name}: memory should be empty"
+
+    def test_all_paths_final_hook_cannot_mutate_stored_content(self) -> None:
+        """四种路径的 final hook 都不能变异存储的 assistant content"""
+        from conftest import (
+            ScriptedAsyncChatModel,
+            ScriptedAsyncStreamingChatModel,
+            ScriptedChatModel,
+            ScriptedStreamingChatModel,
+        )
+
+        # 同步非流式
+        sync_memory = InMemoryConversation()
+        sync_hooks: list[dict] = []
+        sync_model = ScriptedChatModel([
+            LLMResponse(content="original", tool_calls=None, finish_reason="stop"),
+        ])
+        sync_result = Agent(
+            llm=sync_model,
+            tools=[],
+            memory=sync_memory,
+            hooks={"on_final": sync_hooks.append},
+        ).run("question")
+        sync_hooks[0]["final_answer"] = "mutated"
+
+        # 同步流式
+        stream_memory = InMemoryConversation()
+        stream_hooks: list[dict] = []
+        stream_model = ScriptedStreamingChatModel([], [
+            [StreamChunk(content="original", finish_reason="stop")],
+        ])
+        stream_events = list(Agent(
+            llm=stream_model,
+            tools=[],
+            memory=stream_memory,
+            hooks={"on_final": stream_hooks.append},
+        ).run_stream("question"))
+        stream_hooks[0]["final_answer"] = "mutated"
+
+        # 异步非流式
+        async_memory = InMemoryConversation()
+        async_hooks: list[dict] = []
+        async_model = ScriptedAsyncChatModel([
+            LLMResponse(content="original", tool_calls=None, finish_reason="stop"),
+        ])
+        async def run_async():
+            result = await AsyncAgent(
+                llm=async_model,
+                tools=[],
+                memory=async_memory,
+                hooks={"on_final": async_hooks.append},
+            ).run_async("question")
+            async_hooks[0]["final_answer"] = "mutated"
+            return result
+        async_result = asyncio.run(run_async())
+
+        # 异步流式
+        async_stream_memory = InMemoryConversation()
+        async_stream_hooks: list[dict] = []
+        async_stream_model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="original", finish_reason="stop")],
+        ])
+        async def run_async_stream():
+            events = []
+            agent = AsyncAgent(
+                llm=async_stream_model,
+                tools=[],
+                memory=async_stream_memory,
+                hooks={"on_final": async_stream_hooks.append},
+            )
+            async for event in agent.run_stream_async("question"):
+                events.append(event)
+            async_stream_hooks[0]["final_answer"] = "mutated"
+            return events[-1]
+        async_stream_result = asyncio.run(run_async_stream())
+
+        # 验证一致性：变异不应该影响存储的内容
+        for result, memory, name in [
+            (sync_result, sync_memory, "sync"),
+            (stream_events[-1], stream_memory, "stream"),
+            (async_result, async_memory, "async"),
+            (async_stream_result, async_stream_memory, "async_stream"),
+        ]:
+            content = result["content"] if isinstance(result, dict) else result.content
+            assert content == "original", f"{name}: result content should not be mutated"
+            assert memory.get_context()[1]["content"] == "original", (
+                f"{name}: stored content should not be mutated"
+            )

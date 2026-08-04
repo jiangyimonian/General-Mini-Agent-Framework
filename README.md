@@ -1,13 +1,37 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.0.0`
-在 `0.9.0` 的模型能力适配、统一配置和安全日志之上，删除 `core` 命名空间，
-冻结公共 API。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.0`
+在 `1.0.0` 的稳定公共 API 之上，建立了同步、流式和异步路径共同遵守的标准回合协议，
+确保模型通信、工具执行和状态管理的协议正确性。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
 
-## 1.0.0 稳定能力
+## 1.1.0 稳定能力
+
+### 原生工具调用协议
+
+- 一次模型响应构成一条完整 assistant 回合，多工具调用不拆分消息
+- 工具按原始声明顺序执行，每个调用都有对应结果
+- 文本与工具调用可同时存在，文本保留但不提前终止
+- 参数解析失败返回 `invalid_arguments`，模型可修正重试
+
+### 三路径协议等价
+
+同步、流式和异步路径产生相同的：
+- canonical assistant/tool 消息顺序
+- 工具执行顺序和结果
+- 最终内容、stop reason 和 iteration 数
+- usage 汇总和 trace 语义
+
+### 终止状态语义
+
+- `completed`：正常完成，写入对话记忆
+- `max_iterations`：达到迭代上限，不写记忆
+- `model_error`：模型传输或协议错误，脱敏返回
+- `incomplete`：`length` 或 `content_filter` 截断，不写记忆
+- `context_budget_exceeded`：上下文超限，请求前拒绝
+- `memory_error`：长期记忆读取失败
 
 ### 命名空间
 
@@ -467,8 +491,8 @@ python demo/export_demo.py debate
 
 ```bash
 python -m pytest tests -v
-python -m compileall -q general_mini_agent core demo tests
-ruff check general_mini_agent core tests demo
+python -m compileall -q general_mini_agent demo tests
+ruff check general_mini_agent tests demo
 ```
 
 ## 开发文档

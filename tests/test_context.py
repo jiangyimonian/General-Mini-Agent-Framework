@@ -419,3 +419,31 @@ def test_summary_receives_complete_removed_tool_call_unit() -> None:
     policy.prepare(messages)
 
     assert seen == [old_turn]
+
+
+def test_trimming_keeps_multi_tool_group_intact() -> None:
+    policy = TokenBudgetContext(
+        context_window=8,
+        reserved_output_tokens=1,
+        token_counter=MessageCostCounter(),
+    )
+    messages = [
+        {"role": "system", "content": "s"},
+        {"role": "user", "content": "old"},
+        {"role": "assistant", "content": "checking", "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "a", "arguments": "{}"}},
+            {"id": "c2", "type": "function", "function": {"name": "b", "arguments": "{}"}},
+        ]},
+        {"role": "tool", "tool_call_id": "c1", "content": "one"},
+        {"role": "tool", "tool_call_id": "c2", "content": "two"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "current"},
+    ]
+    prepared = policy.prepare(messages)
+    calls = [m for m in prepared if m.get("role") == "assistant" and m.get("tool_calls")]
+    results = [m for m in prepared if m.get("role") == "tool"]
+    assert bool(calls) == bool(results)
+    if calls:
+        assert {c["id"] for c in calls[0]["tool_calls"]} == {
+            r["tool_call_id"] for r in results
+        }

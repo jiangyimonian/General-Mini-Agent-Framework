@@ -6,13 +6,10 @@ These tools are not automatically registered with any Agent. Use
 
 from __future__ import annotations
 
-import os
-import re
 import subprocess
-import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from .tools import JSONValue, Tool, tool
 
@@ -205,7 +202,10 @@ def create_glob_files(context: ToolRuntimeContext) -> Tool:
         try:
             matches = list(base_path.glob(pattern))
             # Use forward slashes consistently
-            relative_paths = [str(m.relative_to(context.workspace.resolve())).replace("\\", "/") for m in matches]
+            relative_paths = [
+                str(m.relative_to(context.workspace.resolve())).replace("\\", "/")
+                for m in matches
+            ]
             return {"pattern": pattern, "path": path, "matches": relative_paths}
         except Exception as e:
             return _error_result("glob_failed", f"Failed to glob {pattern}: {e}")
@@ -266,7 +266,9 @@ def create_search_text(context: ToolRuntimeContext) -> Tool:
                         if query in line:
                             if count >= context.max_search_results:
                                 break
-                            rel_path = str(file_path.relative_to(context.workspace.resolve())).replace("\\", "/")
+                            rel_path = str(
+                                file_path.relative_to(context.workspace.resolve())
+                            ).replace("\\", "/")
                             results.append({
                                 "path": rel_path,
                                 "line": line_num,

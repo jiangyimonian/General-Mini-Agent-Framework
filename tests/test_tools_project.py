@@ -33,7 +33,9 @@ def test_resolve_path_within_workspace() -> None:
         assert resolve_path(workspace, ".") == workspace.resolve()
         assert resolve_path(workspace, "file.txt") == (workspace / "file.txt").resolve()
         assert resolve_path(workspace, "subdir") == (workspace / "subdir").resolve()
-        assert resolve_path(workspace, "subdir/file.txt") == (workspace / "subdir" / "file.txt").resolve()
+        assert resolve_path(workspace, "subdir/file.txt") == (
+            workspace / "subdir" / "file.txt"
+        ).resolve()
 
         # With .. but still within workspace
         assert resolve_path(workspace, "subdir/..") == workspace.resolve()

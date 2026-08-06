@@ -1,11 +1,158 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.0`
-在 `1.0.0` 的稳定公共 API 之上，建立了同步、流式和异步路径共同遵守的标准回合协议，
-确保模型通信、工具执行和状态管理的协议正确性。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.4`
+在 `1.1.3` 的 CLI 基础之上，增加了会话管理和自动上下文压缩功能。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
+
+## 1.1.4 稳定能力
+
+### 会话管理
+
+支持持久化会话历史，自动保存和加载：
+
+- `gmaf chat --session my-chat` - 使用指定会话（自动保存）
+- `gmaf sessions` - 列出所有会话
+- `gmaf delete my-chat` - 删除会话
+- 会话存储位置: `~/.config/gmaf/sessions/` (Windows: `%APPDATA%/gmaf/sessions/`)
+
+```bash
+# 使用会话聊天
+gmaf chat --session my-chat
+
+# 列出所有会话
+gmaf sessions
+
+# 删除会话
+gmaf delete my-chat
+```
+
+### 自动上下文压缩
+
+当对话历史过长时自动压缩以节省 Token：
+
+- `SimpleTruncationStrategy` - 简单截断（保留系统消息和最近的消息）
+- `SummarizationStrategy` - 摘要压缩（可自定义摘要生成）
+- `AutoCompressingConversation` - 自动压缩的对话记忆
+- `CompressingContextPolicy` - 可感知压缩的上下文策略
+
+```python
+from general_mini_agent import SimpleTruncationStrategy, AutoCompressingConversation
+
+# 创建策略
+strategy = SimpleTruncationStrategy(keep_recent=20)
+
+# 使用自动压缩对话记忆
+conv = AutoCompressingConversation(compression_strategy=strategy)
+```
+
+## 1.1.3 稳定能力
+
+### 即装即用 CLI
+
+提供 `gmaf` 命令行工具，支持：
+
+- `gmaf --version` - 显示版本
+- `gmaf doctor` - 检查环境和配置
+- `gmaf init` - 初始化项目配置
+- `gmaf run [任务]` - 运行单次任务
+- `gmaf chat` - 交互式聊天
+
+配置优先级：命令行 > 项目配置 (./.gmaf.toml) > 用户配置 (~/.config/gmaf/config.toml) > 环境变量 (GMAF_*) > 默认值
+
+```bash
+# 初始化项目
+gmaf init
+
+# 检查配置
+gmaf doctor
+
+# 交互式聊天
+gmaf chat
+
+# 运行单次任务
+gmaf run "读取当前目录的文件列表"
+```
+
+## 1.1.2 稳定能力
+
+### 权限与安全边界
+
+提供可组合的权限策略框架，支持细粒度控制工具调用：
+
+- `AllowAllPolicy`：允许所有调用
+- `DenyAllPolicy`：拒绝所有调用
+- `AskPolicy`：请求用户批准
+- `RiskBasedPolicy`：基于风险类别（read/write/execute/external）配置
+- `ToolAllowlistPolicy` / `ToolBlocklistPolicy`：工具名白名单/黑名单
+- `CompositePolicy`：组合多个策略
+- `ConditionalPolicy`：条件路由策略
+- `ProjectToolBoundaryPolicy`：项目工具路径边界检查
+
+```python
+from general_mini_agent import (
+    Agent,
+    ToolRuntimeContext,
+    create_project_tools,
+    create_project_tool_policy,
+    RiskBasedPolicy,
+    PermissionPolicyToAuthorizationAdapter,
+)
+
+# 创建风险策略：允许读，拒绝写和执行
+risk_policy = RiskBasedPolicy(read="allow", write="deny", execute="deny")
+
+# 为项目工具创建完整策略（边界检查 + 风险策略）
+policy = create_project_tool_policy(context, base_policy=risk_policy)
+
+# 适配器桥接到旧授权协议
+agent = Agent(
+    llm=llm,
+    tools=create_project_tools(context),
+    tool_authorization_policy=PermissionPolicyToAuthorizationAdapter(
+        policy,
+        risk_category="read",
+    ),
+)
+```
+
+### 结构化权限请求事件
+
+- `ToolPermissionRequest`：包含工具名、参数、风险类别、上下文
+- `PermissionPolicyToAuthorizationAdapter` 支持可选的事件发射器
+- 权限请求和响应事件可被外部监听器捕获和处理
+
+## 1.1.1 稳定能力
+
+### 项目工具集
+
+提供安全的文件操作和命令执行工具，需显式配置权限：
+
+- 读取工具：`read_file`、`list_files`、`glob_files`、`search_text`（默认启用）
+- 写入工具：`write_file`、`edit_file`（需显式启用 `allow_write=True`）
+- 命令工具：`run_command`（需显式启用 `allow_execute=True`）
+- 所有路径限制在 `workspace` 目录内，防止越权访问
+- 可配置文件大小限制、搜索结果上限、命令超时等
+
+```python
+from pathlib import Path
+from general_mini_agent import Agent, ToolRuntimeContext, create_project_tools
+
+# 创建工具上下文
+context = ToolRuntimeContext(
+    workspace=Path("./my_project"),
+    allow_write=True,      # 启用写入
+    allow_execute=True,    # 启用命令执行
+)
+
+# 为 Agent 注册项目工具
+agent = Agent(
+    llm=llm,
+    tools=create_project_tools(context),
+    memory=InMemoryConversation(),
+)
+```
 
 ## 1.1.0 稳定能力
 
@@ -209,6 +356,7 @@ general_mini_agent/
 ├── context.py        # Token 计数和请求上下文策略
 ├── llm.py            # OpenAI 兼容模型客户端
 ├── tools.py          # 工具注册、Schema 和执行
+├── tools_project.py  # 项目工具：文件操作与命令执行
 ├── memory.py         # 内存会话与旧长期记忆兼容接口
 ├── long_term_memory.py # 稳定的显式长期记忆
 ├── debate.py         # 稳定的多 Agent 协作
@@ -319,13 +467,14 @@ python demo/debate_demo.py
 
 ## 稳定 API
 
-`0.9.0` 的稳定公共入口由 `general_mini_agent` 包导出：
+`1.1.1` 的稳定公共入口由 `general_mini_agent` 包导出：
 
 - 同步模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
 - 异步模型：`AsyncChatModel`、`AsyncStreamingChatModel`、`AsyncLLM`
 - 工具：`tool`、`Tool`、`ToolRegistry`、`ToolExecutionResult`、`JSONValue`、
   `ToolAuthorizationRequest`、`ToolAuthorizationDecision`、`ToolAuthorizationPolicy`
+- 项目工具：`ToolRuntimeContext`、`create_project_tools`
 - 异步工具：`AsyncToolRegistry`
 - 同步 Agent：`Agent`、`AgentConfig`、`AgentResult`、`AgentStopReason`、`TraceEvent`、`StreamEvent`
 - 异步 Agent：`AsyncAgent`

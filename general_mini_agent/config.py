@@ -1,11 +1,27 @@
-"""统一配置加载与校验。"""
+"""统一配置加载与校验。
+
+配置优先级（从高到低）：
+1. 命令行参数/显式参数
+2. 项目配置文件 (./.gmaf.toml)
+3. 用户配置文件 (~/.config/gmaf/config.toml)
+4. 环境变量 (GMAF_*)
+5. 默认值
+"""
 
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ImportError:
+    # Python 3.11-
+    import tomli as tomllib
 
 
 @dataclass(frozen=True)
@@ -131,3 +147,104 @@ class FrameworkConfig:
             reserved_output_tokens=reserved_output_tokens,
             provider=provider,
         )
+
+    @classmethod
+    def load(
+        cls,
+        *,
+        project_config: Path | None = None,
+        user_config: Path | None = None,
+        environ: Mapping[str, str] | None = None,
+        **overrides: Any,
+    ) -> FrameworkConfig:
+        """加载配置，支持配置文件、环境变量和显式参数。
+
+        优先级（从高到低）：
+        1. 显式参数 (**overrides)
+        2. 项目配置文件 (./.gmaf.toml)
+        3. 用户配置文件 (~/.config/gmaf/config.toml)
+        4. 环境变量 (GMAF_*)
+        5. 默认值
+
+        Args:
+            project_config: 项目配置文件路径，None 表示自动探测
+            user_config: 用户配置文件路径，None 表示自动探测
+            environ: 环境变量映射，None 表示使用 os.environ
+            **overrides: 显式参数，优先级最高
+
+        Returns:
+            FrameworkConfig 实例
+
+        Raises:
+            ValueError: 配置校验失败
+        """
+        environ = environ if environ is not None else os.environ
+        config_values: dict[str, Any] = {}
+
+        # 1. 加载用户配置
+        user_cfg_path = user_config
+        if user_cfg_path is None:
+            if sys.platform == "win32":
+                app_data = environ.get("APPDATA")
+                if app_data:
+                    user_cfg_path = Path(app_data) / "gmaf" / "config.toml"
+            else:
+                xdg_config_home = os.environ.get("XDG_CONFIG_HOME", "~/.config")
+                user_cfg_path = Path(xdg_config_home).expanduser() / "gmaf" / "config.toml"
+        if user_cfg_path and user_cfg_path.exists():
+            user_cfg = _load_toml_config(user_cfg_path)
+            config_values.update(user_cfg)
+
+        # 2. 加载项目配置
+        project_cfg_path = project_config
+        if project_cfg_path is None:
+            project_cfg_path = Path.cwd() / ".gmaf.toml"
+        if project_cfg_path.exists():
+            project_cfg = _load_toml_config(project_cfg_path)
+            config_values.update(project_cfg)
+
+        # 3. 环境变量已在 from_env 中处理
+        # 4. 显式参数已在 from_env 中处理
+
+        # 合并到 overrides（注意：config_values 优先级低于显式 overrides）
+        merged_overrides: dict[str, Any] = {}
+        merged_overrides.update(config_values)
+        merged_overrides.update(overrides)
+
+        return cls.from_env(environ=environ, **merged_overrides)
+
+
+def _load_toml_config(path: Path) -> dict[str, Any]:
+    """加载 TOML 配置文件。
+
+    Args:
+        path: 配置文件路径
+
+    Returns:
+        配置字典，空字典表示加载失败或文件为空
+    """
+    try:
+        content = path.read_text(encoding="utf-8")
+        data = tomllib.loads(content)
+        return data.get("gmaf", data)  # 支持有或没有 [gmaf] 顶层
+    except Exception:
+        return {}
+
+
+def find_project_root(start_path: Path | None = None) -> Path | None:
+    """从当前目录向上查找项目根目录（包含 .gmaf.toml 的目录）。
+
+    Args:
+        start_path: 起始路径，None 表示当前目录
+
+    Returns:
+        项目根目录路径，None 表示未找到
+    """
+    path = (start_path or Path.cwd()).resolve()
+    while True:
+        if (path / ".gmaf.toml").exists():
+            return path
+        parent = path.parent
+        if parent == path:  # 到达文件系统根
+            return None
+        path = parent

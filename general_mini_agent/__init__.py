@@ -1,10 +1,20 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
+__version__ = "1.1.4"
+
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
 from .async_agent import AsyncAgent
 from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
 from .async_tools import AsyncToolRegistry
+from .compression import (
+    AutoCompressingConversation,
+    CompressingContextPolicy,
+    CompressionResult,
+    CompressionStrategy,
+    SimpleTruncationStrategy,
+    SummarizationStrategy,
+)
 from .context import (
     ApproximateTokenCounter,
     ContextBudgetExceeded,
@@ -62,12 +72,37 @@ from .long_term_memory import (
     create_memory_record,
 )
 from .memory import ConversationMemory, InMemoryConversation
+from .permissions import (
+    AllowAllPolicy,
+    AskPolicy,
+    CompositePolicy,
+    ConditionalPolicy,
+    DenyAllPolicy,
+    PermissionPolicy,
+    PermissionPolicyToAuthorizationAdapter,
+    RiskBasedPolicy,
+    ToolAllowlistPolicy,
+    ToolBlocklistPolicy,
+    ToolPermissionRequest,
+    ToolPermissionResponse,
+)
 from .providers import (
     DeepSeekAdapter,
     ModelCapabilityError,
     OpenAICompatibleAdapter,
     ProviderAdapter,
     ProviderCapabilities,
+)
+from .session import (
+    Session,
+    SessionMetadata,
+    conversation_from_session,
+    delete_session,
+    get_session_dir,
+    get_session_path,
+    list_sessions,
+    load_session,
+    save_session,
 )
 from .tools import (
     JSONValue,
@@ -80,8 +115,11 @@ from .tools import (
     tool,
 )
 from .tools_project import (
+    ProjectToolBoundaryPolicy,
     ToolRuntimeContext,
+    create_project_tool_policy,
     create_project_tools,
+    get_risk_category_for_tool,
 )
 from .trace import (
     compare_traces_to_html,
@@ -233,4 +271,37 @@ __all__ = [
     # 项目工具
     "ToolRuntimeContext",
     "create_project_tools",
+    "create_project_tool_policy",
+    "get_risk_category_for_tool",
+    "ProjectToolBoundaryPolicy",
+    # 权限与安全边界
+    "AllowAllPolicy",
+    "AskPolicy",
+    "CompositePolicy",
+    "ConditionalPolicy",
+    "DenyAllPolicy",
+    "PermissionPolicy",
+    "PermissionPolicyToAuthorizationAdapter",
+    "RiskBasedPolicy",
+    "ToolAllowlistPolicy",
+    "ToolBlocklistPolicy",
+    "ToolPermissionRequest",
+    "ToolPermissionResponse",
+    # 会话管理
+    "Session",
+    "SessionMetadata",
+    "conversation_from_session",
+    "delete_session",
+    "get_session_dir",
+    "get_session_path",
+    "list_sessions",
+    "load_session",
+    "save_session",
+    # 上下文压缩
+    "AutoCompressingConversation",
+    "CompressionResult",
+    "CompressionStrategy",
+    "CompressingContextPolicy",
+    "SimpleTruncationStrategy",
+    "SummarizationStrategy",
 ]

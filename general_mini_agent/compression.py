@@ -184,7 +184,11 @@ class SummarizationStrategy:
         result_tokens = count_tokens([summary_msg] + recent_messages)
         token_savings = max(0, current_tokens - result_tokens)
 
-        return CompressionResult(messages=result, compressed=len(old_messages), token_savings=token_savings)
+        return CompressionResult(
+            messages=result,
+            compressed=len(old_messages),
+            token_savings=token_savings,
+        )
 
 
 class AutoCompressingConversation:

@@ -319,7 +319,10 @@ def do_chat(
         existing_session = load_session(session_name)
         if existing_session:
             conv = conversation_from_session(existing_session)
-            print(f"✅ 已加载会话: {session_name} ({existing_session.metadata.message_count} 条消息)")
+            print(
+                f"✅ 已加载会话: {session_name} "
+                f"({existing_session.metadata.message_count} 条消息)"
+            )
         else:
             print(f"📍 新会话: {session_name}")
 
@@ -359,7 +362,11 @@ def do_chat(
                     elif event.type == "tool_call":
                         print(f"\n\n🔧 调用工具: {event.name}", flush=True)
                     elif event.type == "observation":
-                        print(f"📊 工具结果: {event.text[:200]}{'...' if len(event.text) > 200 else ''}", flush=True)
+                        print(
+                            f"📊 工具结果: {event.text[:200]}"
+                            f"{'...' if len(event.text) > 200 else ''}",
+                            flush=True,
+                        )
                         print("\n助手: ", end="", flush=True)
                     elif event.type == "final_answer":
                         pass
@@ -419,7 +426,10 @@ def do_delete(name: str, force: bool = False) -> int:
 
     if not force:
         try:
-            confirm = input(f"确定删除会话 '{name}' ({existing.metadata.message_count} 条消息)? [y/N] ").strip()
+            confirm = input(
+                f"确定删除会话 '{name}' "
+                f"({existing.metadata.message_count} 条消息)? [y/N] "
+            ).strip()
             if confirm.lower() not in ("y", "yes", "是"):
                 print("取消删除")
                 return 0

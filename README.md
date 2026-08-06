@@ -1,10 +1,34 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.4`
-在 `1.1.3` 的 CLI 基础之上，增加了会话管理和自动上下文压缩功能。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.5`
+在 `1.1.4` 的会话能力基础之上，增加了循环节点。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
+
+## 1.1.5 稳定能力
+
+### 循环节点
+
+支持条件循环执行工作流节点：
+
+- `LoopNode` - 重复执行 body 直到 should_stop 返回 True
+- 支持最大迭代次数限制，防止无限循环
+- 完整的事件追踪
+
+```python
+from general_mini_agent import LoopNode, Workflow, SequenceNode
+
+# 创建循环节点：从 0 开始递增直到 >= 5
+loop = LoopNode(
+    body=IncrementNode(),  # 需要实现的自定义节点
+    should_stop=lambda v: v >= 5,
+    max_iterations=100,
+)
+
+workflow = Workflow(root=loop)
+result = await workflow.run(0)  # 最终返回 5
+```
 
 ## 1.1.4 稳定能力
 

@@ -5,6 +5,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.1] - 2026-08-06
+
+### 修复
+
+- **AsyncDebate 并发安全问题**: 移除了实例变量 `_last_turn`，改用调用方提供的单元素列表容器来暂存 async generator 的返回值，避免同一 AsyncDebate 实例并发调用时的状态竞态问题。
+
 ## [1.2.0] - 2026-08-06
 
 ### 新增

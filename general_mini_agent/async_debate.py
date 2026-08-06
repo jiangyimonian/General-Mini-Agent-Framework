@@ -114,7 +114,6 @@ class AsyncDebate:
         self.judge = judge
         self.config = config or AsyncDebateConfig()
         self.event_sink = event_sink
-        self._last_turn: DebateTurn | None = None
         self._validate_roles()
 
     def _validate_roles(self) -> None:
@@ -257,13 +256,16 @@ class AsyncDebate:
                     round=round_number,
                 )
                 # Yield all agent events and get the final turn
+                turn_container: list[DebateTurn | None] = [None]
                 async for event in self._pump_and_yield_stream_role(
                     role,
                     self._build_context(role, question, rounds, turns),
                     emitter.child(),
+                    turn_container,
                 ):
                     yield event
-                turn = self._last_turn
+                turn = turn_container[0]
+                assert turn is not None
                 turns.append(turn)
                 if turn.stop_reason != "completed":
                     failed_turn = turn
@@ -313,13 +315,16 @@ class AsyncDebate:
             round=None,
         )
         # Yield all agent events and get the final turn
+        judge_turn_container: list[DebateTurn | None] = [None]
         async for event in self._pump_and_yield_stream_role(
             self.judge,
             self._build_context(self.judge, question, rounds, []),
             emitter.child(),
+            judge_turn_container,
         ):
             yield event
-        judge_turn = self._last_turn
+        judge_turn = judge_turn_container[0]
+        assert judge_turn is not None
         self._accumulate_usage(total_usage, judge_turn.usage)
 
         if judge_turn.stop_reason != "completed":
@@ -393,8 +398,9 @@ class AsyncDebate:
         role: AsyncDebateRole,
         context: str,
         child_emitter: RunEventEmitter,
+        turn_container: list[DebateTurn | None],
     ) -> AsyncIterator[AsyncDebateAgentEvent]:
-        """流式运行一个角色，yield 事件，同时返回最终的 turn。"""
+        """流式运行一个角色，yield 事件，同时通过容器返回最终的 turn。"""
         done_event: StreamEvent | None = None
         async for event in role.agent.run_stream_async(context):
             agent_event: AsyncDebateAgentEvent = {
@@ -423,9 +429,7 @@ class AsyncDebate:
                 error=done_event.get("error"),
                 run_id=child_emitter.run_id,
             )
-        # Store the turn in an attribute on self temporarily
-        # This is a hack because async generators can't return values
-        self._last_turn = turn
+        turn_container[0] = turn
 
     @staticmethod
     def _build_context(

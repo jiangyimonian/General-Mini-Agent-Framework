@@ -17,6 +17,15 @@ from pathlib import Path
 from . import __version__
 from .config import FrameworkConfig, find_project_root
 from .logging import get_logger
+from .session import (
+    conversation_from_session,
+    list_sessions,
+    load_session,
+    save_session,
+)
+from .session import (
+    delete_session as do_delete_session,
+)
 
 logger = get_logger(__name__)
 
@@ -77,6 +86,22 @@ def main() -> int:
     chat_parser.add_argument(
         "--execute", action="store_true", help="启用命令执行"
     )
+    chat_parser.add_argument(
+        "-s", "--session", type=str, help="会话名称（加载/保存）"
+    )
+
+    # sessions 命令
+    sessions_parser = subparsers.add_parser("sessions", help="列出所有会话")
+    sessions_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="显示详细信息"
+    )
+
+    # delete 命令
+    delete_parser = subparsers.add_parser("delete", help="删除会话")
+    delete_parser.add_argument("name", type=str, help="会话名称")
+    delete_parser.add_argument(
+        "-f", "--force", action="store_true", help="不询问确认"
+    )
 
     args = parser.parse_args()
 
@@ -108,7 +133,14 @@ def main() -> int:
             workspace=args.workspace,
             allow_write=args.write,
             allow_execute=args.execute,
+            session_name=args.session,
         )
+
+    if args.command == "sessions":
+        return do_sessions(verbose=args.verbose)
+
+    if args.command == "delete":
+        return do_delete(args.name, force=args.force)
 
     return 0
 
@@ -251,6 +283,7 @@ def do_chat(
     workspace: Path | None = None,
     allow_write: bool = False,
     allow_execute: bool = False,
+    session_name: str | None = None,
 ) -> int:
     """交互式聊天。"""
     from . import LLM, Agent, InMemoryConversation, LLMConfig
@@ -280,15 +313,27 @@ def do_chat(
     workspace_path = workspace or (find_project_root() or Path.cwd())
     print(f"工作区: {workspace_path}")
 
+    # 加载会话
+    conv = InMemoryConversation()
+    if session_name:
+        existing_session = load_session(session_name)
+        if existing_session:
+            conv = conversation_from_session(existing_session)
+            print(f"✅ 已加载会话: {session_name} ({existing_session.metadata.message_count} 条消息)")
+        else:
+            print(f"📍 新会话: {session_name}")
+
     # 创建 Agent
     agent = Agent(
         llm=llm,
         tools=[],
-        memory=InMemoryConversation(),
+        memory=conv,
     )
 
     print()
     print(f"General Mini Agent Framework v{__version__} 交互式聊天")
+    if session_name:
+        print(f"会话: {session_name} (自动保存)")
     print("输入 'exit' 或 'quit' 退出")
     print("-" * 60)
 
@@ -307,8 +352,24 @@ def do_chat(
                 continue
 
             try:
-                result = agent.run(user_input)
-                print(f"\n助手: {result.content}")
+                print("\n助手: ", end="", flush=True)
+                for event in agent.run_stream(user_input):
+                    if event.type == "thought_chunk":
+                        print(event.text, end="", flush=True)
+                    elif event.type == "tool_call":
+                        print(f"\n\n🔧 调用工具: {event.name}", flush=True)
+                    elif event.type == "observation":
+                        print(f"📊 工具结果: {event.text[:200]}{'...' if len(event.text) > 200 else ''}", flush=True)
+                        print("\n助手: ", end="", flush=True)
+                    elif event.type == "final_answer":
+                        pass
+                    elif event.type == "model_error":
+                        print(f"\n❌ 模型错误: {event.error}")
+                print()
+
+                # 保存会话
+                if session_name:
+                    save_session(session_name, conv)
             except Exception as e:
                 print(f"❌ 错误: {e}")
 
@@ -316,6 +377,63 @@ def do_chat(
     except KeyboardInterrupt:
         print()
         return 0
+
+
+def do_sessions(verbose: bool = False) -> int:
+    """列出所有会话。"""
+    sessions = list(list_sessions())
+
+    if not sessions:
+        print("暂无会话")
+        return 0
+
+    print(f"找到 {len(sessions)} 个会话:")
+    print()
+
+    for i, s in enumerate(sessions, 1):
+        if verbose:
+            print(f"{i}. {s.name}")
+            print(f"   创建: {s.created_at}")
+            print(f"   更新: {s.updated_at}")
+            print(f"   消息: {s.message_count}")
+            if s.summary:
+                print(f"   摘要: {s.summary}")
+            print()
+        else:
+            updated = s.updated_at.split("T")[0] if "T" in s.updated_at else s.updated_at
+            print(f"  {i}. {s.name} - {s.message_count} 条消息 ({updated})")
+
+    if not verbose:
+        print()
+        print("使用 'gmaf sessions -v' 查看详情")
+
+    return 0
+
+
+def do_delete(name: str, force: bool = False) -> int:
+    """删除会话。"""
+    existing = load_session(name)
+    if not existing:
+        print(f"会话不存在: {name}")
+        return 1
+
+    if not force:
+        try:
+            confirm = input(f"确定删除会话 '{name}' ({existing.metadata.message_count} 条消息)? [y/N] ").strip()
+            if confirm.lower() not in ("y", "yes", "是"):
+                print("取消删除")
+                return 0
+        except (EOFError, KeyboardInterrupt):
+            print("\n取消删除")
+            return 0
+
+    success = do_delete_session(name)
+    if success:
+        print(f"✅ 已删除会话: {name}")
+        return 0
+    else:
+        print(f"❌ 删除失败: {name}")
+        return 1
 
 
 if __name__ == "__main__":

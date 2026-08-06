@@ -1,12 +1,20 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
 from .async_agent import AsyncAgent
 from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
 from .async_tools import AsyncToolRegistry
+from .compression import (
+    AutoCompressingConversation,
+    CompressingContextPolicy,
+    CompressionResult,
+    CompressionStrategy,
+    SimpleTruncationStrategy,
+    SummarizationStrategy,
+)
 from .context import (
     ApproximateTokenCounter,
     ContextBudgetExceeded,
@@ -84,6 +92,17 @@ from .providers import (
     OpenAICompatibleAdapter,
     ProviderAdapter,
     ProviderCapabilities,
+)
+from .session import (
+    Session,
+    SessionMetadata,
+    conversation_from_session,
+    delete_session,
+    get_session_dir,
+    get_session_path,
+    list_sessions,
+    load_session,
+    save_session,
 )
 from .tools import (
     JSONValue,
@@ -268,4 +287,21 @@ __all__ = [
     "ToolBlocklistPolicy",
     "ToolPermissionRequest",
     "ToolPermissionResponse",
+    # 会话管理
+    "Session",
+    "SessionMetadata",
+    "conversation_from_session",
+    "delete_session",
+    "get_session_dir",
+    "get_session_path",
+    "list_sessions",
+    "load_session",
+    "save_session",
+    # 上下文压缩
+    "AutoCompressingConversation",
+    "CompressionResult",
+    "CompressionStrategy",
+    "CompressingContextPolicy",
+    "SimpleTruncationStrategy",
+    "SummarizationStrategy",
 ]

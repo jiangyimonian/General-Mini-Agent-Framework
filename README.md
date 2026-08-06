@@ -1,10 +1,51 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.3`
-在 `1.1.2` 的权限与安全边界之上，提供了即装即用的 CLI 工具。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.4`
+在 `1.1.3` 的 CLI 基础之上，增加了会话管理和自动上下文压缩功能。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
+
+## 1.1.4 稳定能力
+
+### 会话管理
+
+支持持久化会话历史，自动保存和加载：
+
+- `gmaf chat --session my-chat` - 使用指定会话（自动保存）
+- `gmaf sessions` - 列出所有会话
+- `gmaf delete my-chat` - 删除会话
+- 会话存储位置: `~/.config/gmaf/sessions/` (Windows: `%APPDATA%/gmaf/sessions/`)
+
+```bash
+# 使用会话聊天
+gmaf chat --session my-chat
+
+# 列出所有会话
+gmaf sessions
+
+# 删除会话
+gmaf delete my-chat
+```
+
+### 自动上下文压缩
+
+当对话历史过长时自动压缩以节省 Token：
+
+- `SimpleTruncationStrategy` - 简单截断（保留系统消息和最近的消息）
+- `SummarizationStrategy` - 摘要压缩（可自定义摘要生成）
+- `AutoCompressingConversation` - 自动压缩的对话记忆
+- `CompressingContextPolicy` - 可感知压缩的上下文策略
+
+```python
+from general_mini_agent import SimpleTruncationStrategy, AutoCompressingConversation
+
+# 创建策略
+strategy = SimpleTruncationStrategy(keep_recent=20)
+
+# 使用自动压缩对话记忆
+conv = AutoCompressingConversation(compression_strategy=strategy)
+```
 
 ## 1.1.3 稳定能力
 

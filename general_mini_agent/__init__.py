@@ -1,10 +1,21 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.1.5"
+__version__ = "1.2.0"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
 from .async_agent import AsyncAgent
+from .async_debate import (
+    AsyncDebate,
+    AsyncDebateAgentEvent,
+    AsyncDebateConfig,
+    AsyncDebateDoneEvent,
+    AsyncDebateRole,
+    AsyncDebateRoundStartEvent,
+    AsyncDebateSpeakerEvent,
+    AsyncDebateStreamEvent,
+    create_async_debate,
+)
 from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
 from .async_tools import AsyncToolRegistry
 from .compression import (
@@ -149,7 +160,7 @@ from .workflow import (
     WorkflowResult,
     WorkflowStopReason,
 )
-from .workflow_adapters import AgentNode, AsyncAgentNode, DebateNode
+from .workflow_adapters import AgentNode, AsyncAgentNode, AsyncDebateNode, DebateNode
 
 # isort: split
 # Experimental compatibility exports; not part of the stable API.
@@ -208,6 +219,16 @@ __all__ = [
     "DebateStreamEvent",
     "DebateTurn",
     "create_debate",
+    # AsyncDebate
+    "AsyncDebate",
+    "AsyncDebateAgentEvent",
+    "AsyncDebateConfig",
+    "AsyncDebateDoneEvent",
+    "AsyncDebateRole",
+    "AsyncDebateRoundStartEvent",
+    "AsyncDebateSpeakerEvent",
+    "AsyncDebateStreamEvent",
+    "create_async_debate",
     # 事件
     "RunContext",
     "RunEvent",
@@ -267,6 +288,7 @@ __all__ = [
     "AsyncAgentNode",
     "AgentNode",
     "DebateNode",
+    "AsyncDebateNode",
     # 日志
     "get_logger",
     "safe_log_fields",

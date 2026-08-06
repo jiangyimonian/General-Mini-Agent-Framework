@@ -12,6 +12,7 @@ from .workflow import JSONValue, NodeResult
 if TYPE_CHECKING:
     from .agent import Agent, AgentResult
     from .async_agent import AsyncAgent
+    from .async_debate import AsyncDebate
     from .debate import Debate, DebateResult
 
 
@@ -219,4 +220,61 @@ class DebateNode:
                 run_id=result.run_id,
                 error_code=f"debate_{result.stop_reason}",
                 error=f"Debate stopped with: {result.stop_reason}",
+            )
+
+
+@dataclass
+class AsyncDebateNode:
+    """AsyncDebate 工作流节点适配器。
+
+    将 AsyncDebate 接入工作流，字符串输入映射到问题。
+    """
+
+    debate: AsyncDebate
+
+    async def run(
+        self,
+        value: JSONValue,
+        *,
+        run_context: RunContext,
+        emitter: RunEventEmitter,
+    ) -> NodeResult:
+        """执行 AsyncDebate。
+
+        Args:
+            value: 输入值（必须是字符串）
+            run_context: 运行上下文
+            emitter: 事件发射器
+
+        Returns:
+            NodeResult: 节点结果
+        """
+        # 验证输入是字符串
+        if not isinstance(value, str):
+            return NodeResult(
+                value=None,
+                run_id=run_context.run_id,
+                error_code="invalid_node_input",
+                error="AsyncDebateNode requires string input",
+            )
+
+        # 使用传参方式调用，不修改实例状态
+        result = await self.debate.run_async(
+            value,
+            run_context=run_context,
+            event_sink=emitter._sink,
+        )
+
+        # 转换结果
+        if result.stop_reason == "completed":
+            return NodeResult(
+                value=result.verdict,
+                run_id=result.run_id,
+            )
+        else:
+            return NodeResult(
+                value=None,
+                run_id=result.run_id,
+                error_code=f"debate_{result.stop_reason}",
+                error=f"AsyncDebate stopped with: {result.stop_reason}",
             )

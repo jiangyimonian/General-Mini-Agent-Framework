@@ -188,7 +188,7 @@ def test_core_exports_stable_trace_html_contracts() -> None:
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "1.1.5"',)),
+        ("pyproject.toml", ('version = "1.2.0"',)),
         ("README.md", ("显式检索", "不会自动写入")),
         (
             "demo/long_term_memory.py",
@@ -201,6 +201,29 @@ def test_long_term_memory_release_contract(path, required_text) -> None:
 
     for text in required_text:
         assert text in content
+
+
+def test_async_debate_release_contract() -> None:
+    """测试 1.2.0 异步 Debate 版本合约。"""
+    from general_mini_agent import (
+        AsyncDebate,
+        AsyncDebateConfig,
+        AsyncDebateNode,
+        AsyncDebateRole,
+        create_async_debate,
+    )
+
+    assert AsyncDebate is not None
+    assert AsyncDebateConfig is not None
+    assert AsyncDebateRole is not None
+    assert AsyncDebateNode is not None
+    assert create_async_debate is not None
+
+    # 检查 README 中记录了异步 Debate
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "1.2.0" in readme
+    assert "AsyncDebate" in readme
+    assert "async_debate_demo.py" in readme
 
 
 def test_changelog_exists_and_contains_versions() -> None:

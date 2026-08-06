@@ -5,6 +5,57 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.0] - 2026-08-06
+
+### 新增
+
+- `AsyncDebate` - 异步多 Agent 协作组件
+- `AsyncDebateRole` - 异步参与者配置
+- `AsyncDebateConfig` - 异步 Debate 配置
+- `AsyncDebateStreamEvent` - 异步流式事件类型
+- `AsyncDebateNode` - 工作流集成适配器
+- `create_async_debate()` - 便捷工厂函数
+- 非阻塞执行：`AsyncDebate.run_async()` 异步非阻塞
+- 流式输出：`AsyncDebate.run_stream_async()` 异步流式
+- 顺序模式下，后一个角色可读取同轮前序发言
+- 每次调用独立，实例可复用，状态隔离
+- 离线 Demo：`demo/async_debate_demo.py`
+
+### 变更
+
+- 版本号更新为 1.2.0
+- README 更新异步 Debate 使用文档
+
+## [1.1.5] - 2026-08-06
+
+### 新增
+
+- `LoopNode` - 循环执行 body 直到 should_stop 返回 True
+- 支持最大迭代次数限制，防止无限循环
+- 完整的事件追踪：`loop_started`、`loop_iteration_started`、`loop_iteration_finished`、`loop_finished`
+
+### 变更
+
+- 版本号更新为 1.1.5
+- ROADMAP.md 移除已稳定的循环节点条目
+
+## [1.1.4] - 2026-08-06
+
+### 新增
+
+- 会话持久化：`save_session()`、`load_session()`、`list_sessions()`、`delete_session()`
+- 会话元数据：`SessionMetadata` 包含会话名称、创建时间、修改时间
+- `Session` 包裹对话记忆与会话元数据
+- 自动上下文压缩：`SimpleTruncationStrategy`、`SummarizationStrategy`
+- `CompressingContextPolicy` - 可感知压缩的上下文策略
+- `AutoCompressingConversation` - 自动压缩的对话记忆
+- CLI 会话命令：`gmaf chat --session`、`gmaf sessions`、`gmaf delete`
+
+### 变更
+
+- 版本号更新为 1.1.4
+- ROADMAP.md 移除已稳定的会话和压缩条目
+
 ## [1.1.0] - 2026-08-03
 
 ### 新增

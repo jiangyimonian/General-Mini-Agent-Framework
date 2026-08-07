@@ -596,6 +596,7 @@ python demo/async_debate_demo.py
 - 长期记忆：`MemoryNamespace`、`MemoryRecord`、`MemoryQuery`、`LongTermMemoryStore`、
   `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
 - 异步长期记忆：`AsyncLongTermMemoryStore`、`AsyncInMemoryLongTermStore`、`AsyncChromaMemoryStore`
+- 重试策略：`RetryPolicy`、`execute_with_retry`
 - 多 Agent：`Debate`、`DebateConfig`、`DebateRole`、`DebateRound`、`DebateTurn`、
   `DebateResult`、`DebateStopReason`、`DebateStreamEvent`、`create_debate`
 - 异步多 Agent：`AsyncDebate`、`AsyncDebateConfig`、`AsyncDebateRole`、`create_async_debate`
@@ -757,6 +758,39 @@ agent = Agent(
 ```
 
 授权策略属于 Agent 实例，不使用进程级全局注册表。未知工具和无效参数不会触发授权检查。
+
+### 重试策略（1.6.0 新增）
+
+`RetryPolicy` 为模型请求和记忆读取提供显式、可配置的重试策略：
+
+```python
+from general_mini_agent import RetryPolicy, execute_with_retry
+
+# 配置重试策略
+policy = RetryPolicy(
+    max_attempts=3,           # 最大尝试次数
+    initial_delay_seconds=0.5, # 初始延迟
+    max_delay_seconds=30.0,    # 最大延迟上限
+    multiplier=2.0,            # 指数退避乘数
+)
+
+# 执行带重试的异步操作
+success, error = await execute_with_retry(
+    operation=lambda: model.chat_async(messages),
+    policy=policy,
+    on_retry=lambda attempt, error, delay: print(f"Retry {attempt}: {error}"),
+)
+```
+
+**错误分类**：
+- **可重试**：超时、连接错误、429 速率限制、5xx 服务器错误
+- **不可重试**：401 认证错误、403 授权错误、400 验证错误、404 未找到
+- **永不捕获**：`CancelledError` 直接传播
+
+**设计原则**：
+- 重试永不重复有副作用的操作（工具执行、记忆写入、流式模型输出）
+- 仅对幂等读取操作（记忆 get/query）应用重试策略
+- 测试可注入休眠函数，无需等待真实时钟
 
 ### 多 Agent 协作
 

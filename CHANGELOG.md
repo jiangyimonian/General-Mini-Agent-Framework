@@ -5,6 +5,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.5.0] - 2026-08-07
+
+### 新增
+
+- **异步 ChromaDB 适配器**: `AsyncChromaMemoryStore` 提供可选的持久化异步记忆存储
+- 延迟加载：ChromaDB 仅在首次使用时导入，不影响包导入
+- 可注入客户端工厂：测试时可通过 `client_factory` 参数注入假客户端
+- 所有操作通过 `asyncio.to_thread()` 执行，不阻塞事件循环
+- 支持超时配置：`default_timeout` 参数控制操作超时
+- 失败映射为 `MemoryStoreError(operation, backend="chroma")`，不暴露后端异常文本
+
+### 变更
+
+- 版本号更新为 1.5.0
+- `AsyncChromaMemoryStore` 导出为公共 API
+
+### 兼容性
+
+- ChromaDB 仍为可选依赖：`pip install ".[memory]"`
+- 核心包可在没有 ChromaDB 的情况下正常导入和使用
+
 ## [1.4.0] - 2026-08-07
 
 ### 新增

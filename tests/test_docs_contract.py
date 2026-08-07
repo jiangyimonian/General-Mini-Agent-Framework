@@ -188,7 +188,7 @@ def test_core_exports_stable_trace_html_contracts() -> None:
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "1.4.0"',)),
+        ("pyproject.toml", ('version = "1.5.0"',)),
         ("README.md", ("显式检索", "不会自动写入")),
         (
             "demo/long_term_memory.py",
@@ -247,6 +247,26 @@ def test_async_long_term_memory_release_contract() -> None:
     changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
     assert "## [1.4.0]" in changelog
     assert "异步长期记忆协议" in changelog or "AsyncLongTermMemoryStore" in changelog
+
+
+def test_async_chroma_memory_release_contract() -> None:
+    """测试 1.5.0 异步 ChromaDB 适配器版本合约。"""
+    from general_mini_agent import (
+        AsyncChromaMemoryStore,
+    )
+
+    assert AsyncChromaMemoryStore is not None
+
+    # 检查 README 中记录了异步 ChromaDB
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "1.5.0" in readme
+    assert "AsyncChromaMemoryStore" in readme
+    assert "异步 ChromaDB 示例" in readme
+
+    # 检查 CHANGELOG 中记录了 1.5.0
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [1.5.0]" in changelog
+    assert "异步 ChromaDB 适配器" in changelog or "AsyncChromaMemoryStore" in changelog
 
 
 def test_changelog_exists_and_contains_versions() -> None:

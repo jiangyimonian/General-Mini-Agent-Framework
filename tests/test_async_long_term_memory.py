@@ -326,3 +326,182 @@ class TestAsyncInMemoryLongTermStore:
         assert hasattr(store_instance, "update")
         assert hasattr(store_instance, "delete")
         assert hasattr(store_instance, "clear")
+
+
+class TestAsyncChromaMemoryStore:
+    """Contract tests for AsyncChromaMemoryStore with fake client."""
+
+    def _fake_collection(self, records=None):
+        """Create a fake ChromaDB collection for testing."""
+        records = records or {}
+
+        class FakeCollection:
+            def __init__(self):
+                self._records = dict(records)
+
+            def add(self, ids, documents, metadatas):
+                for i, doc_id in enumerate(ids):
+                    self._records[doc_id] = {
+                        "id": doc_id,
+                        "document": documents[i],
+                        "metadata": metadatas[i],
+                    }
+
+            def get(self, ids=None, where=None, include=None):
+                result_ids = []
+                result_docs = []
+                result_metas = []
+
+                if ids:
+                    for doc_id in ids:
+                        if doc_id in self._records:
+                            rec = self._records[doc_id]
+                            # 检查 where 条件
+                            if where is None or self._matches_where(rec["metadata"], where):
+                                result_ids.append(doc_id)
+                                result_docs.append(rec["document"])
+                                result_metas.append(rec["metadata"])
+                else:
+                    # 无 ids 时，按 where 过滤
+                    for doc_id, rec in self._records.items():
+                        if where is None or self._matches_where(rec["metadata"], where):
+                            result_ids.append(doc_id)
+                            result_docs.append(rec["document"])
+                            result_metas.append(rec["metadata"])
+
+                return {"ids": result_ids, "documents": result_docs, "metadatas": result_metas}
+
+            def query(self, query_texts, n_results, where=None):
+                # 简化查询：返回所有匹配的记录
+                rows = self.get(where=where)
+                ids = rows["ids"][:n_results]
+                docs = rows["documents"][:n_results]
+                metas = rows["metadatas"][:n_results]
+                return {"ids": [ids], "documents": [docs], "metadatas": [metas]}
+
+            def count(self):
+                return len(self._records)
+
+            def update(self, ids, documents, metadatas):
+                for i, doc_id in enumerate(ids):
+                    if doc_id in self._records:
+                        self._records[doc_id]["document"] = documents[i]
+                        self._records[doc_id]["metadata"] = metadatas[i]
+
+            def delete(self, ids):
+                for doc_id in ids:
+                    self._records.pop(doc_id, None)
+
+            def _matches_where(self, metadata, where):
+                """检查元数据是否匹配 where 条件。"""
+                if "$and" in where:
+                    return all(self._matches_where(metadata, cond) for cond in where["$and"])
+                for key, value in where.items():
+                    if key == "$and":
+                        continue
+                    if metadata.get(key) != value:
+                        return False
+                return True
+
+        return FakeCollection()
+
+    def _create_store(self, records=None):
+        """Create an AsyncChromaMemoryStore with injected fake client."""
+        from general_mini_agent.async_long_term_memory import AsyncChromaMemoryStore
+
+        collection = self._fake_collection(records)
+
+        def client_factory():
+            return (None, collection)
+
+        return AsyncChromaMemoryStore(client_factory=client_factory)
+
+    @pytest.mark.asyncio
+    async def test_store_returns_record_with_id(self):
+        """Store operation returns a MemoryRecord with generated ID."""
+        store = self._create_store()
+        namespace = MemoryNamespace("user1", "conv1", "agent1")
+        record = await store.store("test content", namespace)
+        assert isinstance(record, MemoryRecord)
+        assert record.id
+        assert record.content == "test content"
+
+    @pytest.mark.asyncio
+    async def test_get_existing_record(self):
+        """Get retrieves an existing record by ID."""
+        store = self._create_store()
+        namespace = MemoryNamespace("user1", "conv1", "agent1")
+        stored = await store.store("content", namespace)
+        retrieved = await store.get(stored.id, namespace)
+        assert retrieved is not None
+        assert retrieved.id == stored.id
+
+    @pytest.mark.asyncio
+    async def test_query_finds_matching_content(self):
+        """Query finds records with matching content."""
+        store = self._create_store()
+        namespace = MemoryNamespace("user1", "conv1", "agent1")
+        await store.store("python programming", namespace)
+        await store.store("java programming", namespace)
+
+        query = MemoryQuery("programming", namespace, top_k=10)
+        results = await store.query(query)
+        assert len(results) == 2
+
+    @pytest.mark.asyncio
+    async def test_update_existing_record(self):
+        """Update changes record content."""
+        store = self._create_store()
+        namespace = MemoryNamespace("user1", "conv1", "agent1")
+        stored = await store.store("original", namespace)
+        updated = await store.update(stored.id, namespace, content="modified")
+        assert updated.content == "modified"
+
+    @pytest.mark.asyncio
+    async def test_delete_existing_record(self):
+        """Delete removes existing record."""
+        store = self._create_store()
+        namespace = MemoryNamespace("user1", "conv1", "agent1")
+        stored = await store.store("content", namespace)
+        deleted = await store.delete(stored.id, namespace)
+        assert deleted is True
+
+    @pytest.mark.asyncio
+    async def test_clear_removes_records(self):
+        """Clear removes records by namespace."""
+        store = self._create_store()
+        namespace = MemoryNamespace("user1", "conv1", "agent1")
+        await store.store("content1", namespace)
+        await store.store("content2", namespace)
+        count = await store.clear(namespace)
+        assert count == 2
+
+    @pytest.mark.asyncio
+    async def test_missing_chromadb_raises_import_error(self):
+        """Missing ChromaDB raises ImportError on first use."""
+        from general_mini_agent.async_long_term_memory import AsyncChromaMemoryStore
+
+        # 不注入工厂，会尝试导入 chromadb
+        store = AsyncChromaMemoryStore()
+        namespace = MemoryNamespace("user1", "conv1", "agent1")
+
+        # 如果 ChromaDB 已安装，这个测试会跳过
+        # 如果未安装，应抛出 ImportError
+        import importlib.util
+        if importlib.util.find_spec("chromadb") is not None:
+            pytest.skip("ChromaDB is installed, skipping missing dependency test")
+
+        with pytest.raises(ImportError, match="ChromaDB is optional"):
+            await store.store("content", namespace)
+
+
+class TestImportWithoutChromaDB:
+    """Test that general_mini_agent imports without ChromaDB."""
+
+    def test_import_succeeds_without_chromadb(self):
+        """import general_mini_agent succeeds when ChromaDB is absent."""
+        # 这个测试在 CI 环境中验证包可以在没有 ChromaDB 的情况下导入
+        import general_mini_agent
+        assert general_mini_agent.__version__
+        assert hasattr(general_mini_agent, "AsyncChromaMemoryStore")
+        # 类存在，但使用时会检查依赖

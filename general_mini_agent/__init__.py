@@ -1,6 +1,6 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
@@ -19,6 +19,7 @@ from .async_debate import (
 )
 from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
 from .async_long_term_memory import (
+    AsyncChromaMemoryStore,
     AsyncInMemoryLongTermStore,
     AsyncLongTermMemoryStore,
 )
@@ -267,6 +268,7 @@ __all__ = [
     # 异步长期记忆
     "AsyncLongTermMemoryStore",
     "AsyncInMemoryLongTermStore",
+    "AsyncChromaMemoryStore",
     # JSON trace
     "TraceDocument",
     "trace_to_json",

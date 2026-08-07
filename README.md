@@ -1,10 +1,44 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.2.0`
-在 `1.1.5` 的循环节点基础之上，增加了异步 Debate 能力。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.3.0`
+在 `1.2.0` 的异步 Debate 基础之上，增加了并行参与者模式。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
+
+## 1.3.0 稳定能力
+
+### 并行异步 Debate
+
+在异步 Debate 基础上新增并行参与者模式：
+
+- `participant_execution="parallel"` 显式启用并行回合
+- 并行参与者只读取已完成轮次，不读取同轮其他参与者的回答
+- 结果按声明顺序归档，确保确定性
+- 流式事件复用：每个 `agent_event` 标识发起角色
+- 完整的失败归集和取消传播
+
+```python
+from general_mini_agent import create_async_debate
+
+# 创建并行辩论（显式启用并行模式）
+debate = create_async_debate(
+    solver_agent,
+    critic_agent,
+    judge_agent,
+    max_rounds=2,
+    participant_execution="parallel",  # 显式启用并行执行
+)
+
+result = await debate.run_async("分析两个方案")
+print(result.verdict)
+```
+
+**并行模式行为说明：**
+- 并行参与者不读取同轮其他参与者的回答
+- Judge 接收所有参与者的完整回答
+- `"sequential"` 模式（默认）保持同轮可见性：后一个角色可读取前序发言
+- 升级从 `1.2.x` 保持兼容：默认行为不变
 
 ## 1.2.0 稳定能力
 

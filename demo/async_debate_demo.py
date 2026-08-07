@@ -233,6 +233,64 @@ async def example_events():
     print(f"\n{C['judge']}最终结论: {result.verdict}{C['reset']}")
 
 
+# ─── 示例 4：并行执行模式 ─────────────────────────────────────
+
+
+async def example_parallel():
+    """并行执行模式示例（1.3.0 新增）。"""
+    print(f"\n{C['dim']}{'=' * 50}{C['reset']}")
+    print(f"\n{C['judge']}[ 示例 4：并行执行模式 ]{C['reset']}")
+
+    # 创建三个脚本化 Agent
+    solver = ScriptedAsyncAgent("并行求解：答案是 3.14159")
+    critic = ScriptedAsyncAgent("并行审查：确认正确")
+    judge = ScriptedAsyncAgent("并行判决：最终答案 3.14159")
+
+    # 创建并行辩论（participant_execution="parallel"）
+    debate = create_async_debate(
+        solver,
+        critic,
+        judge,
+        max_rounds=1,
+        participant_execution="parallel",  # 显式启用并行执行
+    )
+
+    # 运行并行辩论
+    result = await debate.run_async("圆周率是多少？")
+
+    # 输出结果
+    print(f"\n{C['dim']}-- 并行模式下的参与者 --{C['reset']}")
+    print("  并行参与者不读取同轮其他参与者的回答")
+    print("  Judge 接收所有参与者的完整回答")
+
+    for turn in result.rounds[0].turns:
+        print_role(turn.role, turn.content)
+
+    print(f"\n{C['judge']}最终结论: {result.verdict}{C['reset']}")
+
+    # 流式并行示例
+    print(f"\n{C['dim']}-- 流式并行模式 --{C['reset']}")
+    solver2 = ScriptedAsyncAgent("流式并行求解")
+    critic2 = ScriptedAsyncAgent("流式并行审查")
+    judge2 = ScriptedAsyncAgent("流式并行判决")
+
+    debate2 = create_async_debate(
+        solver2,
+        critic2,
+        judge2,
+        max_rounds=1,
+        participant_execution="parallel",
+    )
+
+    events = [e async for e in debate2.run_stream_async("测试")]
+    speaker_events = [e for e in events if e["type"] == "speaker"]
+    print(f"  收集到 {len(speaker_events)} 个 speaker 事件")
+    for e in speaker_events:
+        print(f"    - {e['role']}")
+
+    print(f"\n{C['judge']}并行模式示例完成！{C['reset']}")
+
+
 # ─── 主入口 ───────────────────────────────────────────────
 
 
@@ -246,6 +304,7 @@ async def main():
     await example_basic()
     await example_streaming()
     await example_events()
+    await example_parallel()
 
     print(f"\n{C['dim']}{'=' * 50}{C['reset']}")
     print(f"\n{C['judge']}所有示例运行完成！{C['reset']}\n")

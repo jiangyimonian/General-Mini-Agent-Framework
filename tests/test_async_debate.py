@@ -9,7 +9,7 @@ from general_mini_agent.async_debate import (
     AsyncDebateRole,
     create_async_debate,
 )
-from general_mini_agent.debate import DebateRound
+from general_mini_agent.debate import DebateResult, DebateRound
 
 
 class ScriptedAsyncAgent:
@@ -352,3 +352,250 @@ def test_core_exports_stable_async_debate_contracts() -> None:
     assert ExportedAsyncDebate is AsyncDebate
     assert ExportedAsyncDebateConfig is AsyncDebateConfig
     assert ExportedAsyncDebateRole is AsyncDebateRole
+
+
+# =============================================================================
+# 1.3.0 Parallel Async Debate Tests
+# =============================================================================
+
+
+def test_async_debate_config_rejects_invalid_execution_mode() -> None:
+    """Task 1.3-A: 不支持的执行模式应报错。"""
+    with pytest.raises(ValueError, match="participant_execution"):
+        AsyncDebateConfig(participant_execution="invalid")  # type: ignore[arg-type]
+
+
+def test_async_debate_config_defaults_to_sequential() -> None:
+    """Task 1.3-A: 省略模式时应为 sequential。"""
+    config = AsyncDebateConfig()
+    assert config.participant_execution == "sequential"
+
+
+@pytest.mark.asyncio
+async def test_parallel_participants_do_not_see_same_round_answers() -> None:
+    """Task 1.3-A: 并行参与者不能看到同轮其他参与者的回答。"""
+    # 使用一个可以检查输入内容的 agent
+    solver = ScriptedAsyncAgent(completed("proposal", 2))
+    critic = ScriptedAsyncAgent(completed("review", 3))
+    judge = ScriptedAsyncAgent(completed("verdict", 5))
+
+    debate = AsyncDebate(
+        [async_role("Solver", solver), async_role("Critic", critic)],
+        judge=async_role("Judge", judge),
+        config=AsyncDebateConfig(max_rounds=1, participant_execution="parallel"),
+    )
+
+    result = await debate.run_async("question")
+
+    assert result.stop_reason == "completed"
+    # Critic 不应该看到 Solver 的同轮回答（并行执行）
+    assert "[Solver]: proposal" not in critic.inputs[0]
+    # Judge 应该看到所有参与者的回答
+    assert "[Solver]: proposal" in judge.inputs[0]
+    assert "[Critic]: review" in judge.inputs[0]
+
+
+@pytest.mark.asyncio
+async def test_parallel_barrier_all_participants_start_before_any_completes() -> None:
+    """Task 1.3-A: 并行参与者同时开始（barrier 测试）。"""
+    import asyncio
+
+    start_times: list[float] = []
+    complete_times: list[float] = []
+
+    class BarrierAsyncAgent:
+        def __init__(self, name: str) -> None:
+            self.name = name
+            self.inputs: list[str] = []
+
+        async def run_async(self, user_input: str, *, run_context=None) -> AgentResult:
+            start_times.append(asyncio.get_event_loop().time())
+            self.inputs.append(user_input)
+            await asyncio.sleep(0.05)  # 模拟工作
+            complete_times.append(asyncio.get_event_loop().time())
+            return completed(f"{self.name} result")
+
+    solver = BarrierAsyncAgent("Solver")
+    critic = BarrierAsyncAgent("Critic")
+    judge_agent = ScriptedAsyncAgent(completed("verdict"))
+
+    debate = AsyncDebate(
+        [
+            AsyncDebateRole("Solver", solver, "You are Solver. {role_context}"),
+            AsyncDebateRole("Critic", critic, "You are Critic. {role_context}"),
+        ],
+        judge=async_role("Judge", judge_agent),
+        config=AsyncDebateConfig(max_rounds=1, participant_execution="parallel"),
+    )
+
+    await debate.run_async("question")
+
+    # 验证两个参与者都已启动
+    assert len(start_times) == 2
+    assert len(complete_times) == 2
+
+    # 并行执行：第一个完成时间应该早于第二个开始时间 + 容差
+    # 即：两个参与者应该几乎同时开始（在彼此完成之前）
+    # 排序后：start_times 应该都在前，complete_times 应该都在后
+    all_times = sorted(start_times + complete_times)
+    # 前两个应该是开始时间，后两个是完成时间
+    assert all_times[0] in start_times and all_times[1] in start_times
+    assert all_times[2] in complete_times and all_times[3] in complete_times
+
+
+@pytest.mark.asyncio
+async def test_parallel_results_are_archived_in_declaration_order() -> None:
+    """Task 1.3-A: 并行结果按声明顺序归档。"""
+    solver = ScriptedAsyncAgent(completed("proposal", 2))
+    critic = ScriptedAsyncAgent(completed("review", 3))
+    judge = ScriptedAsyncAgent(completed("verdict", 5))
+
+    debate = AsyncDebate(
+        [async_role("Solver", solver), async_role("Critic", critic)],
+        judge=async_role("Judge", judge),
+        config=AsyncDebateConfig(max_rounds=1, participant_execution="parallel"),
+    )
+
+    result = await debate.run_async("question")
+
+    # 结果按声明顺序归档
+    assert [turn.role for turn in result.rounds[0].turns] == ["Solver", "Critic"]
+    assert result.rounds[0].turns[0].content == "proposal"
+    assert result.rounds[0].turns[1].content == "review"
+
+
+@pytest.mark.asyncio
+async def test_parallel_usage_accumulated_correctly() -> None:
+    """Task 1.3-A: 并行执行的 usage 正确累计。"""
+    solver = ScriptedAsyncAgent(completed("proposal", 10))
+    critic = ScriptedAsyncAgent(completed("review", 20))
+    judge = ScriptedAsyncAgent(completed("verdict", 30))
+
+    debate = AsyncDebate(
+        [async_role("Solver", solver), async_role("Critic", critic)],
+        judge=async_role("Judge", judge),
+        config=AsyncDebateConfig(max_rounds=1, participant_execution="parallel"),
+    )
+
+    result = await debate.run_async("question")
+
+    assert result.total_usage == {"total_tokens": 60}
+
+
+# =============================================================================
+# 1.3-B: Parallel Failure, Cancellation, and Stream Multiplexing
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_parallel_round_with_partial_failure_preserves_all_turns() -> None:
+    """Task 1.3-B: 并行回合中一个失败，所有 turn 保留，Judge 跳过。"""
+    solver = ScriptedAsyncAgent(completed("proposal", 10))
+    critic = ScriptedAsyncAgent(failed("partial", "critic error", 20))
+    judge = ScriptedAsyncAgent(completed("must not run"))
+
+    debate = AsyncDebate(
+        [async_role("Solver", solver), async_role("Critic", critic)],
+        judge=async_role("Judge", judge),
+        config=AsyncDebateConfig(max_rounds=1, participant_execution="parallel"),
+    )
+
+    result = await debate.run_async("question")
+
+    # 失败应该导致 participant_error
+    assert result.stop_reason == "participant_error"
+    assert result.error == "critic error"
+    # 两个 turn 都应该保留
+    assert len(result.rounds[0].turns) == 2
+    assert result.rounds[0].turns[0].role == "Solver"
+    assert result.rounds[0].turns[0].stop_reason == "completed"
+    assert result.rounds[0].turns[1].role == "Critic"
+    assert result.rounds[0].turns[1].stop_reason == "model_error"
+    # usage 应该包含两个参与者的
+    assert result.total_usage == {"total_tokens": 30}
+    # Judge 不应该运行
+    assert judge.inputs == []
+
+
+@pytest.mark.asyncio
+async def test_parallel_cancellation_propagates_to_all_participants() -> None:
+    """Task 1.3-B: 取消应该传播到所有阻塞的参与者任务。"""
+    import asyncio
+
+    cancelled_count = 0
+    started_count = 0
+
+    class CancellableAsyncAgent:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+        async def run_async(self, user_input: str, *, run_context=None) -> AgentResult:
+            nonlocal cancelled_count, started_count
+            started_count += 1
+            try:
+                await asyncio.sleep(10)  # 长时间睡眠，等待取消
+                return completed(f"{self.name} result")
+            except asyncio.CancelledError:
+                cancelled_count += 1
+                raise
+
+    solver = CancellableAsyncAgent("Solver")
+    critic = CancellableAsyncAgent("Critic")
+
+    debate = AsyncDebate(
+        [
+            AsyncDebateRole("Solver", solver, "You are Solver. {role_context}"),
+            AsyncDebateRole("Critic", critic, "You are Critic. {role_context}"),
+        ],
+        config=AsyncDebateConfig(max_rounds=1, participant_execution="parallel"),
+    )
+
+    async def run_with_timeout() -> DebateResult:
+        async with asyncio.timeout(0.1):
+            return await debate.run_async("question")
+
+    with pytest.raises(asyncio.TimeoutError):
+        await run_with_timeout()
+
+    # 两个参与者都应该已启动
+    assert started_count == 2
+    # 取消应该传播到两个参与者
+    assert cancelled_count == 2
+
+
+@pytest.mark.asyncio
+async def test_parallel_stream_events_identify_originating_role() -> None:
+    """Task 1.3-B: 并行流式事件应该标识发起角色。"""
+    solver = ScriptedAsyncAgent(completed("proposal", 2))
+    critic = ScriptedAsyncAgent(completed("review", 3))
+    judge = ScriptedAsyncAgent(completed("verdict", 5))
+
+    debate = AsyncDebate(
+        [async_role("Solver", solver), async_role("Critic", critic)],
+        judge=async_role("Judge", judge),
+        config=AsyncDebateConfig(max_rounds=1, participant_execution="parallel"),
+    )
+
+    events = [event async for event in debate.run_stream_async("question")]
+
+    # 应该有 speaker 事件标识参与者
+    speaker_events = [e for e in events if e["type"] == "speaker"]
+    speaker_roles = [e["role"] for e in speaker_events]
+    # Solver 和 Critic 应该在 speaker 事件中（并行）
+    # Judge 也应该在
+    assert "Solver" in speaker_roles
+    assert "Critic" in speaker_roles
+    assert "Judge" in speaker_roles
+
+    # 应该有 agent_event 事件标识角色
+    agent_events = [e for e in events if e["type"] == "agent_event"]
+    for event in agent_events:
+        assert "role" in event
+        assert event["role"] in ("Solver", "Critic", "Judge")
+
+    # 最终 rounds 应该按声明顺序
+    done_events = [e for e in events if e["type"] == "debate_done"]
+    assert len(done_events) == 1
+    done_event = done_events[0]
+    assert done_event["stop_reason"] == "completed"
+    assert [turn.role for turn in done_event["rounds"][0].turns] == ["Solver", "Critic"]

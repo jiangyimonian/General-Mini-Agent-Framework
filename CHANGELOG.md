@@ -5,6 +5,29 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.3.0] - 2026-08-07
+
+### 新增
+
+- `AsyncParticipantExecution` - 并行执行模式类型（`"sequential"` | `"parallel"`）
+- `AsyncDebateConfig.participant_execution` - 显式启用并行回合
+- 并行参与者只读取已完成轮次，不读取同轮其他参与者的回答
+- 结果按声明顺序归档，确保确定性输出
+- 流式事件复用：使用 `asyncio.Queue` 传递事件，每个 `agent_event` 标识发起角色
+- 完整的失败归集：并行回合中一个失败时保留所有 turn
+- 取消传播：取消正确传播到所有并行参与者
+- 并行 Demo：`demo/async_debate_demo.py` 新增示例 4
+
+### 变更
+
+- 版本号更新为 1.3.0
+- README 更新并行模式文档
+
+### 兼容性
+
+- 升级从 `1.2.x` 保持兼容：默认 `participant_execution="sequential"`
+- 现有代码无需修改，显式传入 `"parallel"` 才启用并行模式
+
 ## [1.2.1] - 2026-08-06
 
 ### 修复

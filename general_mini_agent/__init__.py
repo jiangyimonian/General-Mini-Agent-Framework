@@ -1,6 +1,6 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
@@ -14,6 +14,7 @@ from .async_debate import (
     AsyncDebateRoundStartEvent,
     AsyncDebateSpeakerEvent,
     AsyncDebateStreamEvent,
+    AsyncParticipantExecution,
     create_async_debate,
 )
 from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
@@ -228,6 +229,7 @@ __all__ = [
     "AsyncDebateRoundStartEvent",
     "AsyncDebateSpeakerEvent",
     "AsyncDebateStreamEvent",
+    "AsyncParticipantExecution",
     "create_async_debate",
     # 事件
     "RunContext",

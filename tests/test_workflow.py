@@ -1,3 +1,4 @@
+
 """测试工作流节点协议与组合。"""
 
 from __future__ import annotations
@@ -820,3 +821,297 @@ class TestWorkflowAdapters:
 
         assert result.stop_reason == "node_error"
         assert result.node_results[0].error_code == "invalid_node_input"
+
+    async def test_async_debate_node_converts_verdict(self) -> None:
+        """AsyncDebateNode 转换 verdict。"""
+        from collections import deque
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.async_debate import create_async_debate
+        from general_mini_agent.async_llm import AsyncChatModel
+        from general_mini_agent.workflow_adapters import AsyncDebateNode
+
+        # 创建脚本化异步模型
+        class ScriptedAsyncChatModel(AsyncChatModel):
+            def __init__(self, responses: list[dict]):
+                self._responses = deque(responses)
+
+            async def chat_async(
+                self, messages: list[dict], tools: list[dict] | None = None
+            ):
+                from general_mini_agent.llm import LLMResponse
+
+                resp = self._responses.popleft()
+                return LLMResponse(
+                    content=resp.get("content", ""),
+                    usage=resp.get("usage", {}),
+                    tool_calls=None,
+                )
+
+        collector = EventCollector()
+
+        # 脚本化响应
+        solver_resp = {"content": "proposal", "usage": {"total_tokens": 2}}
+        critic_resp = {"content": "review", "usage": {"total_tokens": 3}}
+        judge_resp = {"content": "verdict", "usage": {"total_tokens": 5}}
+
+        solver = AsyncAgent(
+            llm=ScriptedAsyncChatModel([solver_resp]),
+            max_iterations=3,
+        )
+        critic = AsyncAgent(
+            llm=ScriptedAsyncChatModel([critic_resp]),
+            max_iterations=3,
+        )
+        judge = AsyncAgent(
+            llm=ScriptedAsyncChatModel([judge_resp]),
+            max_iterations=3,
+        )
+
+        debate = create_async_debate(solver, critic, judge, max_rounds=1)
+
+        node = AsyncDebateNode(debate=debate)
+        workflow = Workflow(root=node, event_sink=collector)
+        result = await workflow.run("What is the answer?")
+
+        assert result.stop_reason == "completed"
+        assert result.value == "verdict"
+
+    async def test_async_debate_node_rejects_non_string_input(self) -> None:
+        """AsyncDebateNode 拒绝非字符串输入。"""
+        from collections import deque
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.async_debate import create_async_debate
+        from general_mini_agent.async_llm import AsyncChatModel
+        from general_mini_agent.workflow_adapters import AsyncDebateNode
+
+        collector = EventCollector()
+
+        # 创建脚本化异步模型
+        class ScriptedAsyncChatModel(AsyncChatModel):
+            def __init__(self, responses: list[dict]):
+                self._responses = deque(responses)
+
+            async def chat_async(
+                self, messages: list[dict], tools: list[dict] | None = None
+            ):
+                from general_mini_agent.llm import LLMResponse
+
+                resp = self._responses.popleft()
+                return LLMResponse(
+                    content=resp.get("content", ""),
+                    usage=resp.get("usage", {}),
+                    tool_calls=None,
+                )
+
+        model = ScriptedAsyncChatModel([{"content": "done", "usage": {}}])
+        agent = AsyncAgent(llm=model, max_iterations=3)
+
+        debate = create_async_debate(agent, agent, agent, max_rounds=1)
+
+        node = AsyncDebateNode(debate=debate)
+        workflow = Workflow(root=node, event_sink=collector)
+        result = await workflow.run(123)
+
+        assert result.stop_reason == "node_error"
+        assert result.node_results[0].error_code == "invalid_node_input"
+
+
+class TestLoopNode:
+    """测试循环节点。"""
+
+    async def test_loop_stops_when_condition_met(self) -> None:
+        """循环在条件满足时停止。"""
+        from general_mini_agent.workflow import LoopNode
+
+        collector = EventCollector()
+
+        @dataclass
+        class IncrementNode:
+            async def run(
+                self,
+                value: Any,
+                *,
+                run_context: RunContext,
+                emitter: RunEventEmitter,
+            ) -> NodeResult:
+                return NodeResult(value=value + 1, run_id=run_context.run_id)
+
+        # 循环直到值 >= 5
+        loop = LoopNode(
+            body=IncrementNode(),
+            should_stop=lambda v: v >= 5,
+            max_iterations=10,
+        )
+
+        workflow = Workflow(root=loop, event_sink=collector)
+        result = await workflow.run(0)
+
+        assert result.stop_reason == "completed"
+        assert result.value == 5
+
+        # 检查事件
+        events = [e.type for e in collector.snapshot()]
+        assert "loop_started" in events
+        assert "loop_iteration_started" in events
+        assert "loop_iteration_finished" in events
+        assert "loop_finished" in events
+
+    async def test_loop_stops_at_max_iterations(self) -> None:
+        """循环在达到最大迭代次数时停止。"""
+        from general_mini_agent.workflow import LoopNode
+
+        collector = EventCollector()
+
+        @dataclass
+        class IncrementNode:
+            async def run(
+                self,
+                value: Any,
+                *,
+                run_context: RunContext,
+                emitter: RunEventEmitter,
+            ) -> NodeResult:
+                return NodeResult(value=value + 1, run_id=run_context.run_id)
+
+        # 条件永远不满足，但最大迭代次数为 5
+        loop = LoopNode(
+            body=IncrementNode(),
+            should_stop=lambda v: False,
+            max_iterations=5,
+        )
+
+        workflow = Workflow(root=loop, event_sink=collector)
+        result = await workflow.run(0)
+
+        assert result.stop_reason == "node_error"
+        assert result.node_results[0].error_code == "max_iterations"
+        assert result.value == 5  # 最后一次的值
+
+    async def test_loop_propagates_body_error(self) -> None:
+        """循环体错误时传播。"""
+        from general_mini_agent.workflow import LoopNode
+
+        collector = EventCollector()
+
+        @dataclass
+        class FailingNode:
+            async def run(
+                self,
+                value: Any,
+                *,
+                run_context: RunContext,
+                emitter: RunEventEmitter,
+            ) -> NodeResult:
+                return NodeResult(
+                    value=None,
+                    run_id=run_context.run_id,
+                    error_code="body_error",
+                    error="Body failed",
+                )
+
+        loop = LoopNode(
+            body=FailingNode(),
+            should_stop=lambda v: False,
+            max_iterations=10,
+        )
+
+        workflow = Workflow(root=loop, event_sink=collector)
+        result = await workflow.run(0)
+
+        assert result.stop_reason == "node_error"
+        assert result.node_results[0].error_code == "loop_body_error"
+
+    async def test_loop_predicate_error_returns_node_error(self) -> None:
+        """谓词错误时返回 node_error。"""
+        from general_mini_agent.workflow import LoopNode
+
+        collector = EventCollector()
+
+        @dataclass
+        class IncrementNode:
+            async def run(
+                self,
+                value: Any,
+                *,
+                run_context: RunContext,
+                emitter: RunEventEmitter,
+            ) -> NodeResult:
+                return NodeResult(value=value + 1, run_id=run_context.run_id)
+
+        def bad_predicate(v: Any) -> bool:
+            raise RuntimeError("predicate failed")
+
+        loop = LoopNode(
+            body=IncrementNode(),
+            should_stop=bad_predicate,
+            max_iterations=10,
+        )
+
+        workflow = Workflow(root=loop, event_sink=collector)
+        result = await workflow.run(0)
+
+        assert result.stop_reason == "node_error"
+        assert result.node_results[0].error_code == "predicate_error"
+
+    async def test_loop_requires_positive_max_iterations(self) -> None:
+        """循环节点需要正整数的 max_iterations。"""
+        from general_mini_agent.workflow import LoopNode
+
+        @dataclass
+        class DummyNode:
+            async def run(
+                self,
+                value: Any,
+                *,
+                run_context: RunContext,
+                emitter: RunEventEmitter,
+            ) -> NodeResult:
+                return NodeResult(value=value, run_id=run_context.run_id)
+
+        with pytest.raises(ValueError, match="positive integer"):
+            LoopNode(body=DummyNode(), should_stop=lambda v: True, max_iterations=0)
+
+        with pytest.raises(ValueError, match="positive integer"):
+            LoopNode(body=DummyNode(), should_stop=lambda v: True, max_iterations=-1)
+
+    async def test_loop_zero_iterations_when_condition_already_met(self) -> None:
+        """初始条件已满足时不执行循环体。"""
+        from general_mini_agent.workflow import LoopNode
+
+        collector = EventCollector()
+
+        executed = False
+
+        @dataclass
+        class TrackingNode:
+            async def run(
+                self,
+                value: Any,
+                *,
+                run_context: RunContext,
+                emitter: RunEventEmitter,
+            ) -> NodeResult:
+                nonlocal executed
+                executed = True
+                return NodeResult(value=value, run_id=run_context.run_id)
+
+        # 初始值已经满足条件
+        loop = LoopNode(
+            body=TrackingNode(),
+            should_stop=lambda v: v == "done",
+            max_iterations=10,
+        )
+
+        workflow = Workflow(root=loop, event_sink=collector)
+        result = await workflow.run("done")
+
+        assert result.stop_reason == "completed"
+        assert result.value == "done"
+        assert executed is False  # 循环体未执行
+
+        # 检查事件：没有迭代事件
+        events = [e.type for e in collector.snapshot()]
+        assert "loop_iteration_started" not in events
+

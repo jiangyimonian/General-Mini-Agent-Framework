@@ -5,6 +5,101 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.3.1] - 2026-08-07
+
+### 修复
+
+- **并行回合异常处理**: 修复 `_run_parallel_round()` 中 `asyncio.gather()` 使用 `return_exceptions=False` 导致的问题。当一个参与者抛出异常时，现在会捕获异常并创建错误 turn，而不是导致整个回合失败。其他参与者继续正常执行。
+- 并行参与者异常现在返回 `model_error` stop_reason 和结构化错误消息
+
+### 新增
+
+- 压力测试套件 `tests/test_async_debate_stress.py`：
+  - 大量并行参与者测试（10 个参与者）
+  - 提前取消的资源清理测试
+  - 流式提前取消测试
+  - 参与者异常隔离测试
+
+## [1.3.0] - 2026-08-07
+
+### 新增
+
+- `AsyncParticipantExecution` - 并行执行模式类型（`"sequential"` | `"parallel"`）
+- `AsyncDebateConfig.participant_execution` - 显式启用并行回合
+- 并行参与者只读取已完成轮次，不读取同轮其他参与者的回答
+- 结果按声明顺序归档，确保确定性输出
+- 流式事件复用：使用 `asyncio.Queue` 传递事件，每个 `agent_event` 标识发起角色
+- 完整的失败归集：并行回合中一个失败时保留所有 turn
+- 取消传播：取消正确传播到所有并行参与者
+- 并行 Demo：`demo/async_debate_demo.py` 新增示例 4
+
+### 变更
+
+- 版本号更新为 1.3.0
+- README 更新并行模式文档
+
+### 兼容性
+
+- 升级从 `1.2.x` 保持兼容：默认 `participant_execution="sequential"`
+- 现有代码无需修改，显式传入 `"parallel"` 才启用并行模式
+
+## [1.2.1] - 2026-08-06
+
+### 修复
+
+- **AsyncDebate 并发安全问题**: 移除了实例变量 `_last_turn`，改用调用方提供的单元素列表容器来暂存 async generator 的返回值，避免同一 AsyncDebate 实例并发调用时的状态竞态问题。
+
+## [1.2.0] - 2026-08-06
+
+### 新增
+
+- `AsyncDebate` - 异步多 Agent 协作组件
+- `AsyncDebateRole` - 异步参与者配置
+- `AsyncDebateConfig` - 异步 Debate 配置
+- `AsyncDebateStreamEvent` - 异步流式事件类型
+- `AsyncDebateNode` - 工作流集成适配器
+- `create_async_debate()` - 便捷工厂函数
+- 非阻塞执行：`AsyncDebate.run_async()` 异步非阻塞
+- 流式输出：`AsyncDebate.run_stream_async()` 异步流式
+- 顺序模式下，后一个角色可读取同轮前序发言
+- 每次调用独立，实例可复用，状态隔离
+- 离线 Demo：`demo/async_debate_demo.py`
+
+### 变更
+
+- 版本号更新为 1.2.0
+- README 更新异步 Debate 使用文档
+
+## [1.1.5] - 2026-08-06
+
+### 新增
+
+- `LoopNode` - 循环执行 body 直到 should_stop 返回 True
+- 支持最大迭代次数限制，防止无限循环
+- 完整的事件追踪：`loop_started`、`loop_iteration_started`、`loop_iteration_finished`、`loop_finished`
+
+### 变更
+
+- 版本号更新为 1.1.5
+- ROADMAP.md 移除已稳定的循环节点条目
+
+## [1.1.4] - 2026-08-06
+
+### 新增
+
+- 会话持久化：`save_session()`、`load_session()`、`list_sessions()`、`delete_session()`
+- 会话元数据：`SessionMetadata` 包含会话名称、创建时间、修改时间
+- `Session` 包裹对话记忆与会话元数据
+- 自动上下文压缩：`SimpleTruncationStrategy`、`SummarizationStrategy`
+- `CompressingContextPolicy` - 可感知压缩的上下文策略
+- `AutoCompressingConversation` - 自动压缩的对话记忆
+- CLI 会话命令：`gmaf chat --session`、`gmaf sessions`、`gmaf delete`
+
+### 变更
+
+- 版本号更新为 1.1.4
+- ROADMAP.md 移除已稳定的会话和压缩条目
+
 ## [1.1.0] - 2026-08-03
 
 ### 新增

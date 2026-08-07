@@ -1,10 +1,114 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.1.4`
-在 `1.1.3` 的 CLI 基础之上，增加了会话管理和自动上下文压缩功能。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.3.0`
+在 `1.2.0` 的异步 Debate 基础之上，增加了并行参与者模式。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
+
+## 1.3.0 稳定能力
+
+### 并行异步 Debate
+
+在异步 Debate 基础上新增并行参与者模式：
+
+- `participant_execution="parallel"` 显式启用并行回合
+- 并行参与者只读取已完成轮次，不读取同轮其他参与者的回答
+- 结果按声明顺序归档，确保确定性
+- 流式事件复用：每个 `agent_event` 标识发起角色
+- 完整的失败归集和取消传播
+
+```python
+from general_mini_agent import create_async_debate
+
+# 创建并行辩论（显式启用并行模式）
+debate = create_async_debate(
+    solver_agent,
+    critic_agent,
+    judge_agent,
+    max_rounds=2,
+    participant_execution="parallel",  # 显式启用并行执行
+)
+
+result = await debate.run_async("分析两个方案")
+print(result.verdict)
+```
+
+**并行模式行为说明：**
+- 并行参与者不读取同轮其他参与者的回答
+- Judge 接收所有参与者的完整回答
+- `"sequential"` 模式（默认）保持同轮可见性：后一个角色可读取前序发言
+- 升级从 `1.2.x` 保持兼容：默认行为不变
+
+## 1.2.0 稳定能力
+
+### 异步 Debate
+
+提供异步多 Agent 协作能力：
+
+- `AsyncDebate` - 异步执行角色顺序，支持非阻塞和流式输出
+- `AsyncDebateRole` - 异步参与者配置
+- `AsyncDebateConfig` - 异步 Debate 配置
+- `AsyncDebateNode` - 工作流集成适配器
+- 顺序模式下，后一个角色可读取同轮前序发言
+- 每次调用独立，实例可复用，状态隔离
+
+```python
+from general_mini_agent import AsyncDebate, AsyncDebateRole, create_async_debate
+
+# 方式 1：直接构造
+debate = AsyncDebate(
+    participants=[
+        AsyncDebateRole("Solver", solver_agent, "提出解决方案。\n{role_context}"),
+        AsyncDebateRole("Critic", critic_agent, "审查已有方案。\n{role_context}"),
+    ],
+    judge=AsyncDebateRole("Judge", judge_agent, "给出最终裁决。\n{role_context}"),
+    config=AsyncDebateConfig(max_rounds=2),
+)
+
+# 方式 2：使用便捷工厂
+debate = create_async_debate(solver_agent, critic_agent, judge_agent, max_rounds=2)
+
+# 非阻塞运行
+result = await debate.run_async("比较两个实现方案")
+print(result.verdict)
+
+# 流式运行
+async for event in debate.run_stream_async("比较两个实现方案"):
+    if event["type"] == "speaker":
+        print(f"{event['role']} 正在发言...")
+    elif event["type"] == "debate_done":
+        print(f"最终结论: {event['verdict']}")
+```
+
+异步 Demo（离线无网络）：
+```bash
+python demo/async_debate_demo.py
+```
+
+## 1.1.5 稳定能力
+
+### 循环节点
+
+支持条件循环执行工作流节点：
+
+- `LoopNode` - 重复执行 body 直到 should_stop 返回 True
+- 支持最大迭代次数限制，防止无限循环
+- 完整的事件追踪
+
+```python
+from general_mini_agent import LoopNode, Workflow, SequenceNode
+
+# 创建循环节点：从 0 开始递增直到 >= 5
+loop = LoopNode(
+    body=IncrementNode(),  # 需要实现的自定义节点
+    should_stop=lambda v: v >= 5,
+    max_iterations=100,
+)
+
+workflow = Workflow(root=loop)
+result = await workflow.run(0)  # 最终返回 5
+```
 
 ## 1.1.4 稳定能力
 
@@ -353,9 +457,13 @@ result = await workflow.run("start")
 ```text
 general_mini_agent/
 ├── agent.py          # 单 Agent 执行循环
+├── async_agent.py    # 异步单 Agent 执行循环
+├── async_debate.py   # 异步多 Agent 协作
 ├── context.py        # Token 计数和请求上下文策略
 ├── llm.py            # OpenAI 兼容模型客户端
+├── async_llm.py      # 异步模型客户端
 ├── tools.py          # 工具注册、Schema 和执行
+├── async_tools.py    # 异步工具执行
 ├── tools_project.py  # 项目工具：文件操作与命令执行
 ├── memory.py         # 内存会话与旧长期记忆兼容接口
 ├── long_term_memory.py # 稳定的显式长期记忆
@@ -371,12 +479,14 @@ general_mini_agent/
 demo/
 ├── reasoning.py      # 同步示例
 ├── reasoning_stream.py # 稳定流式示例
+├── reasoning_async.py # 稳定异步示例
 ├── chat.py           # 0.3.0 上下文与会话记忆示例
 ├── long_term_memory.py # 0.3.1 持久化长期记忆示例
 ├── offline.py        # 离线 Demo（无网络）
 ├── workflow_demo.py  # 工作流 Demo
 ├── scripted_models.py # 脚本化模型
-├── debate_demo.py
+├── debate_demo.py    # 同步多 Agent Demo
+├── async_debate_demo.py # 异步多 Agent Demo
 └── export_demo.py
 tests/                # 离线自动化测试
 ```
@@ -458,16 +568,18 @@ print(result.content)
 ```bash
 python demo/reasoning.py
 python demo/reasoning_stream.py
+python demo/reasoning_async.py
 python demo/chat.py
 python demo/long_term_memory.py
 python demo/debate_demo.py
+python demo/async_debate_demo.py
 ```
 
 该示例需要 `.env` 中存在有效模型密钥，不属于默认离线测试。
 
 ## 稳定 API
 
-`1.1.1` 的稳定公共入口由 `general_mini_agent` 包导出：
+`1.2.0` 的稳定公共入口由 `general_mini_agent` 包导出：
 
 - 同步模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -485,6 +597,10 @@ python demo/debate_demo.py
   `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
 - 多 Agent：`Debate`、`DebateConfig`、`DebateRole`、`DebateRound`、`DebateTurn`、
   `DebateResult`、`DebateStopReason`、`DebateStreamEvent`、`create_debate`
+- 异步多 Agent：`AsyncDebate`、`AsyncDebateConfig`、`AsyncDebateRole`、`create_async_debate`
+- 工作流：`Workflow`、`WorkflowNode`、`NodeResult`、`WorkflowResult`、`WorkflowStopReason`、
+  `SequenceNode`、`ParallelNode`、`ConditionalNode`、`LoopNode`
+- 工作流适配器：`AgentNode`、`AsyncAgentNode`、`DebateNode`、`AsyncDebateNode`
 
 `StreamEvent` 包含 `iteration_start`、`thought_chunk`、`tool_call`、`observation`、
 `final_answer`、`model_error` 和 `done` 七种事件。`done.stop_reason` 为 `completed`、

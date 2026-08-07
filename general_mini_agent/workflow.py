@@ -1,7 +1,7 @@
+
 """可组合、可取消、可观察的工作流节点。
 
-提供串行、有限并行和条件路由节点，支持统一事件追踪。
-不包含循环、持久化、队列或分布式执行。
+提供串行、有限并行、条件路由和循环节点，支持统一事件追踪。
 """
 
 from __future__ import annotations
@@ -588,3 +588,150 @@ class ConditionalNode:
             error_code=result.error_code,
             error=result.error,
         )
+
+
+# ─── 循环节点 ────────────────────────────────────────────────────────
+
+
+class LoopNode:
+    """循环节点：重复执行 body 直到 should_stop 返回 True。
+
+    每次迭代传递前一次的输出作为下一次的输入。
+    """
+
+    def __init__(
+        self,
+        body: WorkflowNode,
+        should_stop: WorkflowPredicate,
+        max_iterations: int = 100,
+    ) -> None:
+        """初始化循环节点。
+
+        Args:
+            body: 循环体节点
+            should_stop: 判断是否停止的谓词（接收当前值，返回 bool）
+            max_iterations: 最大迭代次数（防止无限循环）
+
+        Raises:
+            ValueError: max_iterations 不是正整数
+        """
+        if max_iterations < 1:
+            raise ValueError("max_iterations must be a positive integer")
+        self._body = body
+        self._should_stop = should_stop
+        self._max_iterations = max_iterations
+
+    async def run(
+        self,
+        value: JSONValue,
+        *,
+        run_context: RunContext,
+        emitter: RunEventEmitter,
+    ) -> NodeResult:
+        """执行循环节点。
+
+        循环直到 should_stop 返回 True 或达到 max_iterations。
+        """
+        emitter.emit(
+            "loop_started",
+            {"max_iterations": self._max_iterations},
+        )
+
+        current_value = value
+        iteration_count = 0
+
+        while True:
+            iteration_count += 1
+
+            # 检查是否达到最大迭代次数
+            if iteration_count > self._max_iterations:
+                emitter.emit(
+                    "loop_finished",
+                    {
+                        "stop_reason": "max_iterations",
+                        "iterations": iteration_count - 1,
+                    },
+                )
+                return NodeResult(
+                    value=current_value,
+                    run_id=run_context.run_id,
+                    error_code="max_iterations",
+                    error=f"Reached max iterations ({self._max_iterations})",
+                )
+
+            # 执行 should_stop 判断
+            try:
+                # 防御性复制输入
+                if isinstance(current_value, dict):
+                    input_copy = dict(current_value)
+                elif isinstance(current_value, list):
+                    input_copy = list(current_value)
+                else:
+                    input_copy = current_value
+
+                should_stop_result = self._should_stop(input_copy)
+                if not isinstance(should_stop_result, bool):
+                    should_stop_result = bool(should_stop_result)
+            except Exception as e:
+                emitter.emit(
+                    "loop_finished",
+                    {"stop_reason": "predicate_error", "iterations": iteration_count},
+                )
+                return NodeResult(
+                    value=None,
+                    run_id=run_context.run_id,
+                    error_code="predicate_error",
+                    error=f"Should_stop predicate raised exception: {type(e).__name__}",
+                )
+
+            # 检查是否停止
+            if should_stop_result:
+                emitter.emit(
+                    "loop_finished",
+                    {"stop_reason": "condition_met", "iterations": iteration_count - 1},
+                )
+                return NodeResult(
+                    value=current_value,
+                    run_id=run_context.run_id,
+                )
+
+            # 执行循环体
+            emitter.emit(
+                "loop_iteration_started",
+                {"iteration": iteration_count},
+            )
+
+            child_context = _create_child_context(run_context)
+            child_emitter = emitter.child()
+
+            result = await self._body.run(
+                current_value, run_context=child_context, emitter=child_emitter
+            )
+
+            emitter.emit(
+                "loop_iteration_finished",
+                {
+                    "iteration": iteration_count,
+                    "error_code": result.error_code,
+                },
+            )
+
+            # 检查循环体是否出错
+            if result.error_code is not None:
+                emitter.emit(
+                    "loop_finished",
+                    {
+                        "stop_reason": "body_error",
+                        "iterations": iteration_count,
+                    },
+                )
+                return NodeResult(
+                    value=None,
+                    run_id=run_context.run_id,
+                    error_code="loop_body_error",
+                    error=f"Loop body failed at iteration {iteration_count}: {result.error}",
+                )
+
+            # 更新当前值用于下一次迭代
+            current_value = result.value
+

@@ -595,6 +595,7 @@ python demo/async_debate_demo.py
 - 会话：`ConversationMemory`、`InMemoryConversation`
 - 长期记忆：`MemoryNamespace`、`MemoryRecord`、`MemoryQuery`、`LongTermMemoryStore`、
   `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
+- 异步长期记忆：`AsyncLongTermMemoryStore`、`AsyncInMemoryLongTermStore`
 - 多 Agent：`Debate`、`DebateConfig`、`DebateRole`、`DebateRound`、`DebateTurn`、
   `DebateResult`、`DebateStopReason`、`DebateStreamEvent`、`create_debate`
 - 异步多 Agent：`AsyncDebate`、`AsyncDebateConfig`、`AsyncDebateRole`、`create_async_debate`
@@ -640,6 +641,8 @@ policy = TokenBudgetContext(
 触发；Agent 不会自动写入长期记忆。默认检索仅匹配完整命名空间，跨会话或跨 Agent 的
 读取必须显式选择更宽作用域。
 
+**同步存储示例**：
+
 ```python
 from general_mini_agent import Agent, InMemoryLongTermStore, MemoryNamespace, MemoryQuery
 
@@ -654,12 +657,32 @@ result = agent.run(
 )
 ```
 
+**异步存储示例（1.4.0 新增）**：
+
+```python
+from general_mini_agent import AsyncAgent, AsyncInMemoryLongTermStore, MemoryNamespace, MemoryQuery
+
+namespace = MemoryNamespace("user-1", "conversation-1", "assistant")
+long_term_memory = AsyncInMemoryLongTermStore()
+await long_term_memory.store("用户偏好简洁的 Python 示例", namespace)
+
+agent = AsyncAgent(llm=async_model, long_term_memory=long_term_memory)
+result = await agent.run_async(
+    "给我一个示例",
+    memory_query=MemoryQuery("Python 偏好", namespace),
+)
+```
+
+`AsyncAgent` 同时支持同步和异步存储（向后兼容）。使用 `AsyncLongTermMemoryStore` 
+时查询操作不会阻塞事件循环。
+
 检索结果按相关性顺序作为有界的 system 参考块加入当前请求，并明确标注为历史数据而非
 系统指令。记录内容不会被截断；如果没有完整记录能放入 `max_context_tokens`，请求在访问
 模型前以 `context_budget_exceeded` 停止。`ChromaMemoryStore` 负责 Embedding 和索引，
 ChromaDB 仍是首次操作时才加载的可选依赖。
 
-长期记忆不包含自动记忆选择、自动写入、异步存储、复杂元数据表达式、重排序或分数归一化。
+长期记忆不包含自动记忆选择、自动写入、异步 ChromaDB 适配器（计划 1.5.0）、
+复杂元数据表达式、重排序或分数归一化。
 
 `SlidingWindowMemory` 和 `LongTermMemory` 仅保留兼容导出，不属于稳定 API。
 `general_mini_agent.trace` 仍属于实验性模块。`SummarizingContext` 必须由调用方

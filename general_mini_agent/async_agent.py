@@ -32,6 +32,7 @@ from .agent_protocol import (
     safe_error_message,
 )
 from .async_llm import AsyncChatModel
+from .async_long_term_memory import AsyncLongTermMemoryStore
 from .async_tools import AsyncToolRegistry
 from .context import ContextBudgetExceeded, ContextPolicy
 from .events import EventSink, RunContext, RunEventEmitter
@@ -64,7 +65,7 @@ class AsyncAgent:
         memory: Any | None = None,
         context_policy: ContextPolicy | None = None,
         hooks: dict[str, Callable] | None = None,
-        long_term_memory: LongTermMemoryStore | None = None,
+        long_term_memory: AsyncLongTermMemoryStore | LongTermMemoryStore | None = None,
         tool_authorization_policy: ToolAuthorizationPolicy | None = None,
         default_tool_timeout: float | None = None,
         event_sink: EventSink | None = None,
@@ -526,12 +527,20 @@ class AsyncAgent:
         user_input: str,
         memory_query: MemoryQuery | None,
     ) -> list[dict[str, Any]]:
+        import inspect
+
         messages = [{"role": "system", "content": self.system_prompt}]
         if memory_query is not None:
             if self.long_term_memory is None:
                 raise MemoryStoreError("query", backend="unconfigured")
-            # 注意：同步 store 会阻塞 event loop
-            records = self.long_term_memory.query(memory_query)
+            # 检查 query 方法是否为协程函数
+            query_method = getattr(self.long_term_memory, "query", None)
+            if inspect.iscoroutinefunction(query_method):
+                # 异步 store：非阻塞查询
+                records = await self.long_term_memory.query(memory_query)  # type: ignore
+            else:
+                # 同步 store：阻塞 event loop（向后兼容）
+                records = self.long_term_memory.query(memory_query)  # type: ignore
             memory_message = build_memory_context(
                 records,
                 memory_query.max_context_tokens,

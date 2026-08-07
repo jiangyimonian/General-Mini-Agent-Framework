@@ -5,6 +5,28 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.4.0] - 2026-08-07
+
+### 新增
+
+- **异步长期记忆协议**: 新增 `AsyncLongTermMemoryStore` 协议，允许 `AsyncAgent` 非阻塞检索长期记忆
+- `AsyncInMemoryLongTermStore` - 进程内异步记忆存储，与 `InMemoryLongTermStore` 具有相同值语义
+- `AsyncAgent.long_term_memory` 现在接受 `AsyncLongTermMemoryStore | LongTermMemoryStore | None`
+- 异步存储使用 `asyncio.Lock` 保护记录修改，返回防御性副本
+- 所有六个存储操作（store、get、query、update、delete、clear）均为 awaitable
+- 命名空间隔离、确定性行为，不改变同步存储行为
+
+### 变更
+
+- `AsyncAgent._initial_messages()` 使用 `inspect.iscoroutinefunction()` 检测异步存储，自动 await 异步 query
+- 同步存储在异步上下文中仍可用（向后兼容），但会阻塞事件循环
+- 版本号更新为 1.4.0
+
+### 兼容性
+
+- 完全向后兼容：现有使用同步 `LongTermMemoryStore` 的代码无需修改
+- ChromaDB 异步适配器将在 1.5.0 版本提供
+
 ## [1.3.1] - 2026-08-07
 
 ### 修复

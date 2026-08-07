@@ -1170,4 +1170,162 @@ class TestAsyncAgentStreaming:
             tool_event = next(e for e in events if e["type"] == "tool_call")
             assert tool_event["error_code"] == "execution_failed"
 
+
+# ─────────────────────────────────────────────────────────────
+# 异步长期记忆集成测试
+# ─────────────────────────────────────────────────────────────
+
+
+class TestAsyncAgentLongTermMemory:
+    """测试 AsyncAgent 与异步长期记忆的集成。"""
+
+    def test_async_memory_store_query_without_blocking(self) -> None:
+        """AsyncAgent 使用异步记忆存储时不阻塞事件循环。"""
+        from conftest import ScriptedAsyncChatModel
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.async_long_term_memory import AsyncInMemoryLongTermStore
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.long_term_memory import MemoryNamespace, MemoryQuery
+
+        model = ScriptedAsyncChatModel([
+            LLMResponse(content="answer using memory", tool_calls=None, usage={"total_tokens": 5}),
+        ])
+
+        async def run():
+            store = AsyncInMemoryLongTermStore()
+            namespace = MemoryNamespace("user1", "conv1", "agent1")
+            await store.store("prefers Python", namespace)
+            await store.store("likes TypeScript", namespace)
+
+            agent = AsyncAgent(llm=model, long_term_memory=store)
+            query = MemoryQuery("Python", namespace, top_k=2)
+            result = await agent.run_async("question", memory_query=query)
+
+            assert result.stop_reason == "completed"
+            assert result.content == "answer using memory"
+
+        asyncio.run(run())
+
+    def test_async_memory_store_failure_returns_memory_error(self) -> None:
+        """异步记忆存储查询失败时返回 memory_error。"""
+        from conftest import ScriptedAsyncChatModel
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.long_term_memory import (
+            MemoryNamespace,
+            MemoryQuery,
+            MemoryStoreError,
+        )
+
+        class FailingAsyncStore:
+            async def query(self, query):
+                raise MemoryStoreError("query", backend="test")
+
+        model = ScriptedAsyncChatModel([])
+
+        async def run():
+            agent = AsyncAgent(llm=model, long_term_memory=FailingAsyncStore())
+            namespace = MemoryNamespace("user1", "conv1", "agent1")
+            query = MemoryQuery("test", namespace)
+            result = await agent.run_async("question", memory_query=query)
+
+            assert result.stop_reason == "memory_error"
+            assert "test memory operation failed" in result.error
+
+        asyncio.run(run())
+
+    def test_sync_memory_store_still_works(self) -> None:
+        """同步记忆存储仍然可用（向后兼容）。"""
+        from conftest import ScriptedAsyncChatModel
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.llm import LLMResponse
+        from general_mini_agent.long_term_memory import (
+            InMemoryLongTermStore,
+            MemoryNamespace,
+            MemoryQuery,
+        )
+
+        model = ScriptedAsyncChatModel([
+            LLMResponse(content="answer", tool_calls=None, usage={"total_tokens": 5}),
+        ])
+
+        async def run():
+            store = InMemoryLongTermStore()
+            namespace = MemoryNamespace("user1", "conv1", "agent1")
+            store.store("sync memory", namespace)
+
+            agent = AsyncAgent(llm=model, long_term_memory=store)
+            query = MemoryQuery("sync", namespace)
+            result = await agent.run_async("question", memory_query=query)
+
+            assert result.stop_reason == "completed"
+
+        asyncio.run(run())
+
+    def test_async_memory_streaming_path(self) -> None:
+        """流式路径也支持异步记忆检索。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.async_long_term_memory import AsyncInMemoryLongTermStore
+        from general_mini_agent.llm import StreamChunk
+        from general_mini_agent.long_term_memory import MemoryNamespace, MemoryQuery
+
+        model = ScriptedAsyncStreamingChatModel([
+            [StreamChunk(content="stream answer", finish_reason="stop")],
+        ])
+
+        async def run():
+            store = AsyncInMemoryLongTermStore()
+            namespace = MemoryNamespace("user1", "conv1", "agent1")
+            await store.store("memory record", namespace)
+
+            agent = AsyncAgent(llm=model, long_term_memory=store)
+            query = MemoryQuery("memory", namespace)
+            events = []
+            async for event in agent.run_stream_async("question", memory_query=query):
+                events.append(event)
+
+            done_event = events[-1]
+            assert done_event["type"] == "done"
+            assert done_event["stop_reason"] == "completed"
+            assert done_event["content"] == "stream answer"
+
+        asyncio.run(run())
+
+    def test_async_memory_failure_in_streaming(self) -> None:
+        """流式路径中记忆失败返回 memory_error 事件。"""
+        from conftest import ScriptedAsyncStreamingChatModel
+
+        from general_mini_agent.async_agent import AsyncAgent
+        from general_mini_agent.long_term_memory import (
+            MemoryNamespace,
+            MemoryQuery,
+            MemoryStoreError,
+        )
+
+        class FailingAsyncStore:
+            async def query(self, query):
+                raise MemoryStoreError("query", backend="test")
+
+        model = ScriptedAsyncStreamingChatModel([])
+
+        async def run():
+            agent = AsyncAgent(llm=model, long_term_memory=FailingAsyncStore())
+            namespace = MemoryNamespace("user1", "conv1", "agent1")
+            query = MemoryQuery("test", namespace)
+            events = []
+            async for event in agent.run_stream_async("question", memory_query=query):
+                events.append(event)
+
+            done_event = events[-1]
+            assert done_event["type"] == "done"
+            assert done_event["stop_reason"] == "memory_error"
+            assert "test memory operation failed" in done_event["error"]
+
+        asyncio.run(run())
+
+
         asyncio.run(run())

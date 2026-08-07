@@ -5,6 +5,21 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.3.1] - 2026-08-07
+
+### 修复
+
+- **并行回合异常处理**: 修复 `_run_parallel_round()` 中 `asyncio.gather()` 使用 `return_exceptions=False` 导致的问题。当一个参与者抛出异常时，现在会捕获异常并创建错误 turn，而不是导致整个回合失败。其他参与者继续正常执行。
+- 并行参与者异常现在返回 `model_error` stop_reason 和结构化错误消息
+
+### 新增
+
+- 压力测试套件 `tests/test_async_debate_stress.py`：
+  - 大量并行参与者测试（10 个参与者）
+  - 提前取消的资源清理测试
+  - 流式提前取消测试
+  - 参与者异常隔离测试
+
 ## [1.3.0] - 2026-08-07
 
 ### 新增

@@ -519,17 +519,31 @@ class AsyncDebate:
             for role in self.participants
         ]
 
-        # 并行执行所有参与者
+        # 并行执行所有参与者（return_exceptions=True 捕获异常）
         turn_results = await asyncio.gather(
             *[
                 self._run_role(role, context, emitter.child())
                 for role, context in zip(self.participants, contexts, strict=True)
             ],
-            return_exceptions=False,
+            return_exceptions=True,
         )
 
-        # 按声明顺序归档结果
-        turns: list[DebateTurn] = list(turn_results)
+        # 按声明顺序归档结果，处理异常
+        turns: list[DebateTurn] = []
+        for i, result in enumerate(turn_results):
+            if isinstance(result, Exception):
+                # 参与者抛出异常，创建错误 turn
+                turns.append(
+                    DebateTurn(
+                        role=self.participants[i].name,
+                        content="",
+                        stop_reason="model_error",
+                        error=f"participant raised exception: {type(result).__name__}",
+                        run_id=emitter.run_id,
+                    )
+                )
+            else:
+                turns.append(result)
 
         # 检查是否有失败的参与者
         failed_turn = next(

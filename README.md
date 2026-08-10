@@ -421,6 +421,35 @@ python demo/offline.py
 - `SequenceNode`：串行节点，依次执行子节点，传递前一节点输出
 - `ParallelNode`：并行节点，并发执行子节点，结果按声明顺序排列
 - `ConditionalNode`：条件节点，根据 predicate 选择分支
+- `LoopNode`：循环节点，重复执行直到条件满足
+
+**动态节点（1.7.0 新增）**：
+
+```python
+from general_mini_agent import Workflow, WorkflowConfig, SequenceNode
+
+# 配置动态节点边界
+config = WorkflowConfig(
+    max_nodes=100,  # 最大节点数
+    max_depth=10,   # 最大深度
+)
+
+workflow = Workflow(
+    root=SequenceNode([...]),
+    config=config,
+)
+result = await workflow.run("start")
+
+# 动态添加节点（运行时请求）
+# workflow.add_node(node, name, dynamic_state, emitter)
+```
+
+**设计约束**：
+- 默认最大节点数：100（含静态节点）
+- 默认最大深度：10 层
+- 重复节点名称被拒绝
+- 工作流完成或取消后图被冻结
+- 两次运行不共享动态添加
 
 工作流示例：
 
@@ -600,8 +629,8 @@ python demo/async_debate_demo.py
 - 多 Agent：`Debate`、`DebateConfig`、`DebateRole`、`DebateRound`、`DebateTurn`、
   `DebateResult`、`DebateStopReason`、`DebateStreamEvent`、`create_debate`
 - 异步多 Agent：`AsyncDebate`、`AsyncDebateConfig`、`AsyncDebateRole`、`create_async_debate`
-- 工作流：`Workflow`、`WorkflowNode`、`NodeResult`、`WorkflowResult`、`WorkflowStopReason`、
-  `SequenceNode`、`ParallelNode`、`ConditionalNode`、`LoopNode`
+- 工作流：`Workflow`、`WorkflowConfig`、`WorkflowNode`、`NodeResult`、`WorkflowResult`、
+  `WorkflowStopReason`、`SequenceNode`、`ParallelNode`、`ConditionalNode`、`LoopNode`、`GraphFrozenError`
 - 工作流适配器：`AgentNode`、`AsyncAgentNode`、`DebateNode`、`AsyncDebateNode`
 
 `StreamEvent` 包含 `iteration_start`、`thought_chunk`、`tool_call`、`observation`、

@@ -1,6 +1,6 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
@@ -157,12 +157,14 @@ from .trace_json import (
 )
 from .workflow import (
     ConditionalNode,
+    GraphFrozenError,
     LoopNode,
     NodeResult,
     ParallelErrorPolicy,
     ParallelNode,
     SequenceNode,
     Workflow,
+    WorkflowConfig,
     WorkflowNode,
     WorkflowResult,
     WorkflowStopReason,
@@ -290,6 +292,7 @@ __all__ = [
     "LongTermMemory",
     # 工作流
     "Workflow",
+    "WorkflowConfig",
     "WorkflowNode",
     "WorkflowResult",
     "NodeResult",
@@ -299,6 +302,7 @@ __all__ = [
     "ParallelErrorPolicy",
     "ConditionalNode",
     "LoopNode",
+    "GraphFrozenError",
     # 工作流适配器
     "AsyncAgentNode",
     "AgentNode",

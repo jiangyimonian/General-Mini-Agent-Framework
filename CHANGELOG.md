@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.7.0] - 2026-08-07
+
+### 新增
+
+- **动态工作流节点**: 支持运行时受限的图扩展
+- `WorkflowConfig`: 配置最大节点数和深度
+- `GraphFrozenError`: 当尝试修改已冻结的图时抛出
+- `Workflow.add_node()`: 请求动态添加节点
+- 新增事件类型：
+  - `node_addition_requested`: 节点请求添加
+  - `node_addition_accepted`: 节点添加成功
+  - `node_addition_rejected`: 节点添加被拒绝
+  - `graph_frozen`: 图被冻结
+
+### 变更
+
+- 版本号更新为 1.7.0
+- `WorkflowConfig` 和 `GraphFrozenError` 导出为公共 API
+
+### 设计约束
+
+- 默认最大节点数：100（含静态节点）
+- 默认最大深度：10 层
+- 重复节点名称被拒绝
+- 工作流完成或取消后图被冻结
+- 两次运行不共享动态添加
+
 ## [1.6.0] - 2026-08-07
 
 ### 新增

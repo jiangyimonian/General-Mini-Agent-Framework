@@ -5,6 +5,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.8.0] - 2026-08-07
+
+### 新增
+
+- **速率限制策略**: `RateLimitPolicy` 和 `RateLimiter` 实现请求治理
+- `RateLimitPolicy(requests_per_minute, burst)`: 配置每分钟请求数和突发容量
+- `RateLimiter.try_acquire()`: 非阻塞尝试获取令牌
+- `RateLimiter.acquire_sync()`: 同步阻塞获取令牌
+- `RateLimiter.acquire_async()`: 异步阻塞获取令牌
+- 支持超时配置：`acquire_sync(timeout=...)` 和 `acquire_async(timeout=...)`
+- 使用令牌桶算法，支持突发请求
+
+### 变更
+
+- 版本号更新为 1.8.0
+- `RateLimitPolicy` 和 `RateLimiter` 导出为公共 API
+- 默认不启用速率限制，现有代码无需修改
+
+### 设计原则
+
+- 速率限制仅对配置的 LLM 实例生效
+- 使用单调时钟，不依赖系统时间
+- 异步取消正确传播
+
 ## [1.7.0] - 2026-08-07
 
 ### 新增

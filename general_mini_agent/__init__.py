@@ -1,6 +1,6 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
@@ -110,6 +110,7 @@ from .providers import (
     ProviderAdapter,
     ProviderCapabilities,
 )
+from .rate_limit import RateLimiter, RateLimitPolicy
 from .retry import RetryPolicy, execute_with_retry
 from .session import (
     Session,
@@ -287,6 +288,9 @@ __all__ = [
     # 重试策略
     "RetryPolicy",
     "execute_with_retry",
+    # 速率限制
+    "RateLimitPolicy",
+    "RateLimiter",
     # 兼容导出
     "SlidingWindowMemory",
     "LongTermMemory",

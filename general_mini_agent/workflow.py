@@ -26,6 +26,68 @@ WorkflowPredicate = Callable[[JSONValue], bool]
 ParallelErrorPolicy = Literal["fail_fast", "collect_errors"]
 
 
+# ─── 异常类 ────────────────────────────────────────────────────────
+
+
+class GraphFrozenError(Exception):
+    """当尝试修改已冻结的图时抛出。"""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(f"Graph is frozen: {reason}")
+
+
+# ─── 配置类 ────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class WorkflowConfig:
+    """工作流配置。"""
+
+    max_nodes: int = 100
+    max_depth: int = 10
+
+    def __post_init__(self) -> None:
+        if self.max_nodes < 1:
+            raise ValueError("max_nodes must be at least 1")
+        if self.max_depth < 1:
+            raise ValueError("max_depth must be at least 1")
+
+
+# ─── 动态图状态 ────────────────────────────────────────────────────────
+
+
+@dataclass
+class _DynamicGraphState:
+    """运行时动态图状态（每次运行独立）。"""
+
+    node_count: int = 0
+    frozen: bool = False
+    freeze_reason: str | None = None
+    node_names: set[str] = field(default_factory=set)
+    depth: int = 0
+
+    def can_add_node(self, name: str, config: WorkflowConfig) -> tuple[bool, str]:
+        """检查是否可以添加节点。"""
+        if self.frozen:
+            return False, "graph_frozen"
+        if self.node_count >= config.max_nodes:
+            return False, "max_nodes"
+        if name in self.node_names:
+            return False, "duplicate_node"
+        return True, ""
+
+    def add_node(self, name: str) -> None:
+        """记录节点添加。"""
+        self.node_count += 1
+        self.node_names.add(name)
+
+    def freeze(self, reason: str) -> None:
+        """冻结图。"""
+        self.frozen = True
+        self.freeze_reason = reason
+
+
 # ─── 结果类型 ────────────────────────────────────────────────────────
 
 
@@ -113,15 +175,18 @@ class Workflow:
         root: WorkflowNode,
         *,
         event_sink: EventSink | None = None,
+        config: WorkflowConfig | None = None,
     ) -> None:
         """初始化工作流。
 
         Args:
             root: 根节点
             event_sink: 可选的事件 sink
+            config: 工作流配置（动态节点边界）
         """
         self._root = root
         self._event_sink = event_sink
+        self._config = config or WorkflowConfig()
 
     async def run(self, value: JSONValue) -> WorkflowResult:
         """执行工作流。
@@ -143,6 +208,9 @@ class Workflow:
             sink=self._event_sink,
         )
 
+        # 创建动态图状态（每次运行独立）
+        dynamic_state = _DynamicGraphState()
+
         # 发出 run_started
         emitter.emit("run_started", {"input_type": type(value).__name__})
 
@@ -153,7 +221,10 @@ class Workflow:
         try:
             # 执行根节点
             result = await self._run_node(
-                value, run_context=root_context, emitter=emitter
+                value,
+                run_context=root_context,
+                emitter=emitter,
+                dynamic_state=dynamic_state,
             )
             node_results.append(result)
 
@@ -163,6 +234,11 @@ class Workflow:
 
         except asyncio.CancelledError:
             # CancelledError 原样传播
+            dynamic_state.freeze("cancelled")
+            emitter.emit("graph_frozen", {
+                "final_count": dynamic_state.node_count,
+                "reason": "cancelled",
+            })
             emitter.emit("run_finished", {"stop_reason": "cancelled"})
             raise
 
@@ -178,6 +254,13 @@ class Workflow:
                     error=error,
                 )
             )
+
+        # 冻结图
+        dynamic_state.freeze(stop_reason)
+        emitter.emit("graph_frozen", {
+            "final_count": dynamic_state.node_count,
+            "reason": stop_reason,
+        })
 
         # 发出 run_finished
         emitter.emit(
@@ -196,12 +279,58 @@ class Workflow:
             error=error,
         )
 
+    def add_node(
+        self,
+        node: WorkflowNode,
+        name: str,
+        dynamic_state: _DynamicGraphState,
+        emitter: RunEventEmitter,
+    ) -> bool:
+        """请求动态添加节点。
+
+        Args:
+            node: 要添加的节点
+            name: 节点名称
+            dynamic_state: 动态图状态
+            emitter: 事件发射器
+
+        Returns:
+            True 如果添加成功，False 如果被拒绝
+        """
+        # 发出请求事件
+        emitter.emit("node_addition_requested", {
+            "node_to_add": name,
+            "current_count": dynamic_state.node_count,
+        })
+
+        # 检查是否可以添加
+        can_add, reason = dynamic_state.can_add_node(name, self._config)
+
+        if not can_add:
+            emitter.emit("node_addition_rejected", {
+                "node_to_add": name,
+                "reason": reason,
+            })
+            return False
+
+        # 记录添加
+        dynamic_state.add_node(name)
+
+        # 发出接受事件
+        emitter.emit("node_addition_accepted", {
+            "node_added": name,
+            "new_count": dynamic_state.node_count,
+        })
+
+        return True
+
     async def _run_node(
         self,
         value: JSONValue,
         *,
         run_context: RunContext,
         emitter: RunEventEmitter,
+        dynamic_state: _DynamicGraphState | None = None,
     ) -> NodeResult:
         """执行单个节点，验证输入输出。"""
         # 验证输入是 JSONValue

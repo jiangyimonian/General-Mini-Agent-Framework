@@ -481,52 +481,27 @@ class RateLimitPolicy:
 
 ---
 
-## 1.9.0: Tool Sandbox Isolation
+## 1.9.0: Guarded Command Execution (implemented)
 
-**Release objective:** Isolate project-tool command execution with explicit platform support, resource limits, and a fail-closed security boundary.
+**Release objective:** Add portable subprocess guardrails to project-tool command
+execution without claiming operating-system isolation.
 
-**Dependency:** `ToolRuntimeContext`, `ProjectToolBoundaryPolicy`, `create_run_command()`, structured permission policy, and the existing command timeout/output cap behavior.
+The implementation is documented in:
 
-### Task 1.9-A: Threat Model and Platform Contract
+- `docs/superpowers/specs/2026-08-06-tool-sandbox-design.md`
+- `docs/superpowers/plans/2026-08-06-tool-sandbox.md`
 
-**Files:**
-- Create: `docs/superpowers/specs/2026-08-06-tool-sandbox-design.md`
-- Create: `docs/superpowers/plans/2026-08-06-tool-sandbox.md`
+Delivered behavior:
 
-- [ ] Enumerate supported host platforms and the isolation mechanism available on each.
-- [ ] Define sandbox filesystem roots, network policy, process lifetime, CPU/memory limits, environment-variable allowlist, and behavior when isolation is unavailable.
-- [ ] Define the compatibility policy for the existing `run_command` tool: sandbox-disabled legacy behavior, sandbox-enabled enforcement, and a future major-version path if the default must become more restrictive.
-- [ ] Obtain security review and explicit approval before production changes to `tools_project.py`.
+- opt-in `SandboxConfig` integration for `ToolRuntimeContext`;
+- working-directory validation, exact environment allowlists, timeout cleanup,
+  and bounded stdout/stderr capture;
+- fail-closed `network_policy="deny"` when the Phase 1 backend cannot enforce it;
+- structured setup errors and an `output_truncated` result flag;
+- authorization remains ahead of subprocess creation when using `ToolRegistry`.
 
-**Acceptance:** The design gives a testable answer for every requested execution capability and does not claim isolation that the selected platform cannot provide.
-
-### Task 1.9-B: Sandboxed Command Runner
-
-**Files:**
-- Create: `general_mini_agent/sandbox.py`
-- Modify: `general_mini_agent/tools_project.py`, `general_mini_agent/permissions.py`
-- Create: `tests/test_sandbox.py`
-- Modify: `tests/test_tools_project.py`, `tests/test_permissions.py`
-
-- [ ] Write failing tests for disabled sandbox behavior, path escape rejection, network-denied behavior, timeout cleanup, output caps, environment filtering, and unavailable-sandbox failure.
-- [ ] Define a `CommandSandbox` protocol returning a structured result with exit code, stdout, stderr, duration, timeout state, and sandbox error code.
-- [ ] Route `create_run_command()` through the sandbox only when `ToolRuntimeContext` explicitly selects it; default to denial if sandbox mode is requested but unavailable.
-- [ ] Keep authorization evaluation before sandbox process creation and return sanitized structured errors for all setup failures.
-- [ ] Execute Linux and Windows test jobs for every sandbox-enabled release candidate.
-
-**Acceptance:** A sandboxed command cannot access a path, environment value, network capability, or process lifetime outside the approved contract.
-
-### Task 1.9-C: Security Documentation and Release
-
-**Files:**
-- Modify: `README.md`, `CHANGELOG.md`, `ROADMAP.md`, `pyproject.toml`, `.github/workflows/ci.yml`
-- Modify: `tests/test_docs_contract.py`, `tests/test_package_metadata.py`
-
-- [ ] Document supported platforms, configuration defaults, known limitations, and the distinction between authorization and isolation.
-- [ ] Add CI coverage for each supported sandbox platform or mark unsupported combinations as excluded with a documented reason.
-- [ ] Bump to `1.9.0`, add the changelog entry, and run the Shared Release Gate plus sandbox platform checks.
-
-**Acceptance:** The release notes do not represent a permission check as a sandbox, and CI evidence covers every supported isolation implementation.
+Filesystem, network, CPU, memory, and strong process containment remain future
+work and are not part of the 1.9.0 release contract.
 
 ---
 

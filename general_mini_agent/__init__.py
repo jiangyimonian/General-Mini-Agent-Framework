@@ -1,6 +1,6 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.3.1"
+__version__ = "1.9.0"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
@@ -18,6 +18,11 @@ from .async_debate import (
     create_async_debate,
 )
 from .async_llm import AsyncChatModel, AsyncLLM, AsyncStreamingChatModel
+from .async_long_term_memory import (
+    AsyncChromaMemoryStore,
+    AsyncInMemoryLongTermStore,
+    AsyncLongTermMemoryStore,
+)
 from .async_tools import AsyncToolRegistry
 from .compression import (
     AutoCompressingConversation,
@@ -105,6 +110,15 @@ from .providers import (
     ProviderAdapter,
     ProviderCapabilities,
 )
+from .rate_limit import RateLimiter, RateLimitPolicy
+from .retry import RetryPolicy, execute_with_retry
+from .sandbox import (
+    CommandSandbox,
+    SandboxConfig,
+    SandboxResult,
+    get_platform_info,
+    is_sandbox_available,
+)
 from .session import (
     Session,
     SessionMetadata,
@@ -151,12 +165,14 @@ from .trace_json import (
 )
 from .workflow import (
     ConditionalNode,
+    GraphFrozenError,
     LoopNode,
     NodeResult,
     ParallelErrorPolicy,
     ParallelNode,
     SequenceNode,
     Workflow,
+    WorkflowConfig,
     WorkflowNode,
     WorkflowResult,
     WorkflowStopReason,
@@ -260,6 +276,10 @@ __all__ = [
     "ChromaMemoryStore",
     "create_memory_record",
     "build_memory_context",
+    # 异步长期记忆
+    "AsyncLongTermMemoryStore",
+    "AsyncInMemoryLongTermStore",
+    "AsyncChromaMemoryStore",
     # JSON trace
     "TraceDocument",
     "trace_to_json",
@@ -272,11 +292,24 @@ __all__ = [
     "render_html",
     "debate_to_html",
     "export_trace",
+    # 重试策略
+    "RetryPolicy",
+    "execute_with_retry",
+    # 速率限制
+    "RateLimitPolicy",
+    "RateLimiter",
+    # 命令执行守卫
+    "SandboxConfig",
+    "SandboxResult",
+    "CommandSandbox",
+    "is_sandbox_available",
+    "get_platform_info",
     # 兼容导出
     "SlidingWindowMemory",
     "LongTermMemory",
     # 工作流
     "Workflow",
+    "WorkflowConfig",
     "WorkflowNode",
     "WorkflowResult",
     "NodeResult",
@@ -286,6 +319,7 @@ __all__ = [
     "ParallelErrorPolicy",
     "ConditionalNode",
     "LoopNode",
+    "GraphFrozenError",
     # 工作流适配器
     "AsyncAgentNode",
     "AgentNode",

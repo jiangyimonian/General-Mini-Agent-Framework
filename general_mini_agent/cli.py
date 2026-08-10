@@ -357,21 +357,30 @@ def do_chat(
             try:
                 print("\n助手: ", end="", flush=True)
                 for event in agent.run_stream(user_input):
-                    if event.type == "thought_chunk":
-                        print(event.text, end="", flush=True)
-                    elif event.type == "tool_call":
-                        print(f"\n\n🔧 调用工具: {event.name}", flush=True)
-                    elif event.type == "observation":
-                        print(
-                            f"📊 工具结果: {event.text[:200]}"
-                            f"{'...' if len(event.text) > 200 else ''}",
-                            flush=True,
-                        )
+                    # 统一获取事件属性
+                    if isinstance(event, dict):
+                        event_type = event.get("type", "")
+                        text = event.get("text", "")
+                        name = event.get("name", "")
+                        error = event.get("error", "")
+                    else:
+                        event_type = getattr(event, "type", "")
+                        text = getattr(event, "text", "")
+                        name = getattr(event, "name", "")
+                        error = getattr(event, "error", "")
+
+                    if event_type == "thought_chunk":
+                        print(text, end="", flush=True)
+                    elif event_type == "tool_call":
+                        print(f"\n\n🔧 调用工具: {name}", flush=True)
+                    elif event_type == "observation":
+                        display = text[:200] + ("..." if len(text) > 200 else "")
+                        print(f"📊 工具结果: {display}", flush=True)
                         print("\n助手: ", end="", flush=True)
-                    elif event.type == "final_answer":
+                    elif event_type == "final_answer":
                         pass
-                    elif event.type == "model_error":
-                        print(f"\n❌ 模型错误: {event.error}")
+                    elif event_type == "model_error":
+                        print(f"\n❌ 模型错误: {error}")
                 print()
 
                 # 保存会话

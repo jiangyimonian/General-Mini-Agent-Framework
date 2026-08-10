@@ -86,7 +86,7 @@ python -m venv /tmp/release-venv
 /tmp/release-venv/bin/python -c "from importlib.metadata import version; from general_mini_agent import Agent, Debate, LLM, MemoryQuery; print(version('general-mini-agent-framework'))"
 ```
 
-输出应为发布版本号（如 `0.4.1`）。
+输出应为发布版本号（如 `1.9.0`）。
 
 ## 合并与打 Tag
 
@@ -101,8 +101,8 @@ git push origin main
 ### 创建版本 Tag
 
 ```bash
-git tag v0.4.1
-git push origin v0.4.1
+git tag v1.9.0
+git push origin v1.9.0
 ```
 
 ## 约束与故障排查

@@ -5,6 +5,149 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.9.0] - 2026-08-10
+
+### 新增
+
+- **受控命令执行**：`SandboxConfig`、`SandboxResult`、`CommandSandbox` 提供可移植的子进程守卫
+- `ToolRuntimeContext.sandbox_config`: 可选沙箱配置，默认禁用（保持向后兼容）
+- 工作目录逃逸防护：拒绝将 `cwd` 设置到配置根目录之外
+- 环境变量过滤：仅传递白名单内的环境变量
+- 超时强制终止：超时后清理进程组或进程树
+- 有界输出捕获：持续排空 stdout/stderr，保留内容不超过配置上限
+- 平台信息查询：`is_sandbox_available()`、`get_platform_info()`
+- fail-closed：请求未实现的网络隔离时返回错误且不执行命令
+
+### 变更
+
+- 版本号更新为 1.9.0
+- `SandboxConfig`、`SandboxResult`、`CommandSandbox` 导出为公共 API
+
+### 设计原则
+
+- 默认禁用执行守卫，保持现有行为
+- 通过授权策略调用时，权限检查先于命令执行
+- Phase 1 使用 subprocess，提供 cwd、环境、超时和输出捕获守卫
+- Phase 1 不是不受信任代码的安全边界；文件系统、网络和资源隔离保留到后续版本
+
+## [1.8.0] - 2026-08-07
+
+### 新增
+
+- **速率限制策略**: `RateLimitPolicy` 和 `RateLimiter` 实现请求治理
+- `RateLimitPolicy(requests_per_minute, burst)`: 配置每分钟请求数和突发容量
+- `RateLimiter.try_acquire()`: 非阻塞尝试获取令牌
+- `RateLimiter.acquire_sync()`: 同步阻塞获取令牌
+- `RateLimiter.acquire_async()`: 异步阻塞获取令牌
+- 支持超时配置：`acquire_sync(timeout=...)` 和 `acquire_async(timeout=...)`
+- 使用令牌桶算法，支持突发请求
+
+### 变更
+
+- 版本号更新为 1.8.0
+- `RateLimitPolicy` 和 `RateLimiter` 导出为公共 API
+- 默认不启用速率限制，现有代码无需修改
+
+### 设计原则
+
+- 速率限制仅对配置的 LLM 实例生效
+- 使用单调时钟，不依赖系统时间
+- 异步取消正确传播
+
+## [1.7.0] - 2026-08-07
+
+### 新增
+
+- **动态工作流节点**: 支持运行时受限的图扩展
+- `WorkflowConfig`: 配置最大节点数和深度
+- `GraphFrozenError`: 当尝试修改已冻结的图时抛出
+- `Workflow.add_node()`: 请求动态添加节点
+- 新增事件类型：
+  - `node_addition_requested`: 节点请求添加
+  - `node_addition_accepted`: 节点添加成功
+  - `node_addition_rejected`: 节点添加被拒绝
+  - `graph_frozen`: 图被冻结
+
+### 变更
+
+- 版本号更新为 1.7.0
+- `WorkflowConfig` 和 `GraphFrozenError` 导出为公共 API
+
+### 设计约束
+
+- 默认最大节点数：100（含静态节点）
+- 默认最大深度：10 层
+- 重复节点名称被拒绝
+- 工作流完成或取消后图被冻结
+- 两次运行不共享动态添加
+
+## [1.6.0] - 2026-08-07
+
+### 新增
+
+- **显式重试策略**: `RetryPolicy` 配置类，支持指数退避和最大尝试次数
+- `execute_with_retry()` 异步助手函数，用于执行带重试的操作
+- 可注入休眠函数，支持确定性测试（无需等待真实时钟）
+- 结构化错误分类：
+  - 可重试：超时、连接错误、429 速率限制、5xx 服务器错误
+  - 不可重试：401 认证错误、403 授权错误、400 验证错误、404 未找到
+- `CancelledError` 永不捕获，直接传播
+- `on_retry` 回调，用于可观测性
+
+### 变更
+
+- 版本号更新为 1.6.0
+- `RetryPolicy` 和 `execute_with_retry` 导出为公共 API
+
+### 设计原则
+
+- 重试永不重复有副作用的操作（工具、记忆写入、流式模型输出）
+- 仅对幂等读取操作（记忆 get/query）应用重试策略
+- 测试可注入休眠函数，无需等待真实时钟
+
+## [1.5.0] - 2026-08-07
+
+### 新增
+
+- **异步 ChromaDB 适配器**: `AsyncChromaMemoryStore` 提供可选的持久化异步记忆存储
+- 延迟加载：ChromaDB 仅在首次使用时导入，不影响包导入
+- 可注入客户端工厂：测试时可通过 `client_factory` 参数注入假客户端
+- 所有操作通过 `asyncio.to_thread()` 执行，不阻塞事件循环
+- 支持超时配置：`default_timeout` 参数控制操作超时
+- 失败映射为 `MemoryStoreError(operation, backend="chroma")`，不暴露后端异常文本
+
+### 变更
+
+- 版本号更新为 1.5.0
+- `AsyncChromaMemoryStore` 导出为公共 API
+
+### 兼容性
+
+- ChromaDB 仍为可选依赖：`pip install ".[memory]"`
+- 核心包可在没有 ChromaDB 的情况下正常导入和使用
+
+## [1.4.0] - 2026-08-07
+
+### 新增
+
+- **异步长期记忆协议**: 新增 `AsyncLongTermMemoryStore` 协议，允许 `AsyncAgent` 非阻塞检索长期记忆
+- `AsyncInMemoryLongTermStore` - 进程内异步记忆存储，与 `InMemoryLongTermStore` 具有相同值语义
+- `AsyncAgent.long_term_memory` 现在接受 `AsyncLongTermMemoryStore | LongTermMemoryStore | None`
+- 异步存储使用 `asyncio.Lock` 保护记录修改，返回防御性副本
+- 所有六个存储操作（store、get、query、update、delete、clear）均为 awaitable
+- 命名空间隔离、确定性行为，不改变同步存储行为
+
+### 变更
+
+- `AsyncAgent._initial_messages()` 使用 `inspect.iscoroutinefunction()` 检测异步存储，自动 await 异步 query
+- 同步存储在异步上下文中仍可用（向后兼容），但会阻塞事件循环
+- 版本号更新为 1.4.0
+
+### 兼容性
+
+- 完全向后兼容：现有使用同步 `LongTermMemoryStore` 的代码无需修改
+- ChromaDB 异步适配器将在 1.5.0 版本提供
+
 ## [1.3.1] - 2026-08-07
 
 ### 修复

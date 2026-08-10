@@ -188,8 +188,17 @@ def test_core_exports_stable_trace_html_contracts() -> None:
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "1.3.1"',)),
-        ("README.md", ("显式检索", "不会自动写入")),
+        ("pyproject.toml", ('version = "1.9.0"',)),
+        (
+            "README.md",
+            (
+                "显式检索",
+                "不会自动写入",
+                "FrameworkConfig.load()",
+                ".gmaf.toml",
+                "GMAF_API_KEY",
+            ),
+        ),
         (
             "demo/long_term_memory.py",
             ("ChromaMemoryStore", "MemoryNamespace", "MemoryQuery"),
@@ -224,6 +233,76 @@ def test_async_debate_release_contract() -> None:
     assert "1.2.0" in readme
     assert "AsyncDebate" in readme
     assert "async_debate_demo.py" in readme
+
+
+def test_async_long_term_memory_release_contract() -> None:
+    """测试 1.4.0 异步长期记忆版本合约。"""
+    from general_mini_agent import (
+        AsyncInMemoryLongTermStore,
+        AsyncLongTermMemoryStore,
+    )
+
+    assert AsyncLongTermMemoryStore is not None
+    assert AsyncInMemoryLongTermStore is not None
+
+    # 检查 README 中记录了异步长期记忆
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "1.4.0" in readme
+    assert "AsyncLongTermMemoryStore" in readme
+    assert "AsyncInMemoryLongTermStore" in readme
+    assert "异步存储示例" in readme
+
+    # 检查 CHANGELOG 中记录了 1.4.0
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [1.4.0]" in changelog
+    assert "异步长期记忆协议" in changelog or "AsyncLongTermMemoryStore" in changelog
+
+
+def test_async_chroma_memory_release_contract() -> None:
+    """测试 1.5.0 异步 ChromaDB 适配器版本合约。"""
+    from general_mini_agent import (
+        AsyncChromaMemoryStore,
+    )
+
+    assert AsyncChromaMemoryStore is not None
+
+    # 检查 README 中记录了异步 ChromaDB
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "1.5.0" in readme
+    assert "AsyncChromaMemoryStore" in readme
+    assert "异步 ChromaDB 示例" in readme
+
+    # 检查 CHANGELOG 中记录了 1.5.0
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [1.5.0]" in changelog
+    assert "异步 ChromaDB 适配器" in changelog or "AsyncChromaMemoryStore" in changelog
+
+
+def test_retry_policy_release_contract() -> None:
+    """测试 1.6.0 重试策略版本合约。"""
+    from general_mini_agent import RetryPolicy, execute_with_retry
+
+    assert RetryPolicy is not None
+    assert execute_with_retry is not None
+
+    # 验证 RetryPolicy 可以正确创建
+    policy = RetryPolicy(
+        max_attempts=3,
+        initial_delay_seconds=0.1,
+        max_delay_seconds=10.0,
+    )
+    assert policy.max_attempts == 3
+
+    # 检查 README 中记录了重试策略
+    readme = Path("README.md").read_text(encoding="utf-8")
+    assert "1.6.0" in readme
+    assert "RetryPolicy" in readme
+    assert "重试策略" in readme
+
+    # 检查 CHANGELOG 中记录了 1.6.0
+    changelog = Path("CHANGELOG.md").read_text(encoding="utf-8")
+    assert "## [1.6.0]" in changelog
+    assert "重试策略" in changelog or "RetryPolicy" in changelog
 
 
 def test_changelog_exists_and_contains_versions() -> None:

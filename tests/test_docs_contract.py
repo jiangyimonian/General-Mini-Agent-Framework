@@ -188,8 +188,17 @@ def test_core_exports_stable_trace_html_contracts() -> None:
 @pytest.mark.parametrize(
     ("path", "required_text"),
     [
-        ("pyproject.toml", ('version = "1.8.0"',)),
-        ("README.md", ("显式检索", "不会自动写入")),
+        ("pyproject.toml", ('version = "1.9.0"',)),
+        (
+            "README.md",
+            (
+                "显式检索",
+                "不会自动写入",
+                "FrameworkConfig.load()",
+                ".gmaf.toml",
+                "GMAF_API_KEY",
+            ),
+        ),
         (
             "demo/long_term_memory.py",
             ("ChromaMemoryStore", "MemoryNamespace", "MemoryQuery"),

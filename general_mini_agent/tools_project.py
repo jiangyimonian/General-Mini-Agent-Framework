@@ -17,6 +17,7 @@ from .permissions import (
     ToolPermissionRequest,
     ToolPermissionResponse,
 )
+from .sandbox import CommandSandbox, SandboxConfig
 from .tools import JSONValue, Tool, tool
 
 
@@ -40,6 +41,8 @@ class ToolRuntimeContext:
     command_timeout: float = 30.0
     # Maximum command output bytes (default: 100KB)
     max_command_output: int = 102_400
+    # Optional guarded-subprocess configuration (default: None = legacy execution)
+    sandbox_config: SandboxConfig | None = None
 
 
 def get_risk_category_for_tool(tool_name: str) -> RiskCategory:
@@ -516,83 +519,131 @@ def create_run_command(context: ToolRuntimeContext) -> Tool:
         if not context.allow_execute:
             return _error_result("execute_disabled", "Command execution is disabled")
 
-        import time
+        sandbox_config = context.sandbox_config
+        if sandbox_config is not None and sandbox_config.enabled:
+            return _run_sandboxed_command(context, sandbox_config, command, args, shell)
 
-        if args is None:
-            args = []
-
-        cmd_list: str | list[str]
-        if shell:
-            cmd_list = command + " " + " ".join(args) if args else command
-        else:
-            cmd_list = [command] + args
-
-        start_time = time.time()
-        timed_out = False
-        proc: subprocess.Popen | None = None
-
-        try:
-            proc = subprocess.Popen(
-                cmd_list,
-                cwd=str(context.workspace.resolve()),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,
-                shell=shell,
-            )
-
-            stdout_bytes: bytes = b""
-            stderr_bytes: bytes = b""
-            stdout_truncated = False
-            stderr_truncated = False
-
-            # Read with timeout
-            try:
-                stdout_bytes, stderr_bytes = proc.communicate(timeout=context.command_timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                # Kill and continue reading
-                proc.kill()
-                try:
-                    stdout_bytes, stderr_bytes = proc.communicate(timeout=5.0)
-                except Exception:
-                    pass
-
-            duration = time.time() - start_time
-            exit_code = proc.returncode if proc.returncode is not None else -1
-
-            # Decode output
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-
-            # Truncate output if needed
-            if len(stdout_bytes) > context.max_command_output:
-                stdout = stdout[: context.max_command_output // 2] + "\n...[truncated]..."
-                stdout_truncated = True
-            if len(stderr_bytes) > context.max_command_output:
-                stderr = stderr[: context.max_command_output // 2] + "\n...[truncated]..."
-                stderr_truncated = True
-
-            result: dict[str, Any] = {
-                "exit_code": exit_code,
-                "stdout": stdout,
-                "stderr": stderr,
-                "duration": duration,
-                "timed_out": timed_out,
-            }
-            if stdout_truncated or stderr_truncated:
-                result["output_truncated"] = True
-
-            return result
-        except Exception as e:
-            if timed_out:
-                return _error_result(
-                    "command_timed_out",
-                    f"Command timed out after {context.command_timeout} seconds",
-                )
-            return _error_result("command_failed", f"Failed to run command: {e}")
+        # Legacy behavior (no sandbox)
+        return _run_legacy_command(context, command, args, shell)
 
     return run_command
+
+
+def _run_sandboxed_command(
+    context: ToolRuntimeContext,
+    config: SandboxConfig,
+    command: str,
+    args: list[str] | None = None,
+    shell: bool = False,
+) -> JSONValue:
+    """Run a command through the guarded subprocess backend."""
+    if args is None:
+        args = []
+
+    sandbox = CommandSandbox(config, context.workspace)
+    result = sandbox.execute(command, args=args, shell=shell)
+
+    if result.sandbox_error:
+        return {
+            "error": result.sandbox_error,
+            "message": result.stderr or result.sandbox_error,
+            "stderr": result.stderr,
+        }
+
+    response: dict[str, Any] = {
+        "exit_code": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "duration": result.duration_ms / 1000.0,
+        "timed_out": result.timeout,
+    }
+    if result.output_truncated:
+        response["output_truncated"] = True
+    return response
+
+
+def _run_legacy_command(
+    context: ToolRuntimeContext,
+    command: str,
+    args: list[str] | None = None,
+    shell: bool = False,
+) -> JSONValue:
+    """Run command without sandbox (legacy behavior)."""
+    import time
+
+    if args is None:
+        args = []
+
+    cmd_list: str | list[str]
+    if shell:
+        cmd_list = command + " " + " ".join(args) if args else command
+    else:
+        cmd_list = [command] + args
+
+    start_time = time.time()
+    timed_out = False
+    proc: subprocess.Popen | None = None
+
+    try:
+        proc = subprocess.Popen(
+            cmd_list,
+            cwd=str(context.workspace.resolve()),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=False,
+            shell=shell,
+        )
+
+        stdout_bytes: bytes = b""
+        stderr_bytes: bytes = b""
+        stdout_truncated = False
+        stderr_truncated = False
+
+        # Read with timeout
+        try:
+            stdout_bytes, stderr_bytes = proc.communicate(timeout=context.command_timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            # Kill and continue reading
+            proc.kill()
+            try:
+                stdout_bytes, stderr_bytes = proc.communicate(timeout=5.0)
+            except Exception:
+                pass
+
+        duration = time.time() - start_time
+        exit_code = proc.returncode if proc.returncode is not None else -1
+
+        # Decode output
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
+
+        # Truncate output if needed
+        if len(stdout_bytes) > context.max_command_output:
+            stdout = stdout[: context.max_command_output // 2] + "\n...[truncated]..."
+            stdout_truncated = True
+        if len(stderr_bytes) > context.max_command_output:
+            stderr = stderr[: context.max_command_output // 2] + "\n...[truncated]..."
+            stderr_truncated = True
+
+        result: dict[str, Any] = {
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "duration": duration,
+            "timed_out": timed_out,
+        }
+        if stdout_truncated or stderr_truncated:
+            result["output_truncated"] = True
+
+        return result
+    except Exception as e:
+        if timed_out:
+            return _error_result(
+                "command_timed_out",
+                f"Command timed out after {context.command_timeout} seconds",
+            )
+        return _error_result("command_failed", f"Failed to run command: {e}")
 
 
 def create_project_tools(context: ToolRuntimeContext) -> list[Tool]:

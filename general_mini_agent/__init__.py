@@ -1,6 +1,6 @@
 """General Mini Agent Framework - 正式命名空间。"""
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 from .agent import Agent, AgentConfig, AgentResult, StreamEvent, TraceEvent
 from .agent_protocol import AgentStopReason
@@ -112,6 +112,13 @@ from .providers import (
 )
 from .rate_limit import RateLimiter, RateLimitPolicy
 from .retry import RetryPolicy, execute_with_retry
+from .sandbox import (
+    CommandSandbox,
+    SandboxConfig,
+    SandboxResult,
+    get_platform_info,
+    is_sandbox_available,
+)
 from .session import (
     Session,
     SessionMetadata,
@@ -291,6 +298,12 @@ __all__ = [
     # 速率限制
     "RateLimitPolicy",
     "RateLimiter",
+    # 命令执行守卫
+    "SandboxConfig",
+    "SandboxResult",
+    "CommandSandbox",
+    "is_sandbox_available",
+    "get_platform_info",
     # 兼容导出
     "SlidingWindowMemory",
     "LongTermMemory",

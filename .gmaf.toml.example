@@ -1,0 +1,13 @@
+# Copy this file to .gmaf.toml and replace the placeholder values.
+# Keep .gmaf.toml local; it may contain credentials.
+
+api_key = "your-api-key"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+timeout = 60.0
+max_retries = 2
+provider = "openai-compatible"
+
+# Set both values together when using a bounded context.
+# context_window = 65536
+# reserved_output_tokens = 4096

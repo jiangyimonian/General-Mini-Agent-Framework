@@ -1,4 +1,7 @@
+import tomllib
 from pathlib import Path
+
+import general_mini_agent
 
 
 def test_pyproject_declares_core_runtime_and_dev_extra() -> None:
@@ -11,10 +14,16 @@ def test_pyproject_declares_core_runtime_and_dev_extra() -> None:
     assert '"ruff>=' in content
 
 
-def test_pyproject_declares_version_1_8_0() -> None:
+def test_pyproject_declares_version_1_9_0() -> None:
     content = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert 'version = "1.8.0"' in content
+    assert 'version = "1.9.0"' in content
+
+
+def test_package_version_matches_project_metadata() -> None:
+    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    assert general_mini_agent.__version__ == project["project"]["version"]
 
 
 def test_ci_verifies_installed_wheel_against_project_version() -> None:

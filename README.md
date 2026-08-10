@@ -1,10 +1,78 @@
 # General Mini Agent Framework
 
-General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.3.0`
-在 `1.2.0` 的异步 Debate 基础之上，增加了并行参与者模式。
+General Mini Agent Framework 是一个轻量、可组合的 Python Agent 内核。`1.9.0`
+新增受控命令执行，为项目工具提供可移植的子进程守卫。
 
 框架直接使用 OpenAI 兼容的 Chat Completions API，不依赖 LangChain、LangGraph
 等上层编排框架。
+
+## 1.9.0 稳定能力
+
+### 受控命令执行
+
+为项目工具的命令执行提供 Phase 1 子进程守卫：
+
+- `SandboxConfig` - 沙箱配置（默认禁用，保持向后兼容）
+- `CommandSandbox` - 受控命令执行器
+- `SandboxResult` - 结构化执行结果
+- 工作目录边界：拒绝将 `cwd` 设置到配置根目录之外
+- 环境变量过滤：仅传递白名单内的环境变量
+- 超时清理：超时后终止进程组或进程树
+- 有界输出捕获：持续排空 stdout/stderr，但只保留配置上限内的内容
+- fail-closed：请求当前后端不支持的网络隔离时，不启动命令
+
+```python
+from pathlib import Path
+from general_mini_agent import (
+    ToolRuntimeContext,
+    create_project_tools,
+    SandboxConfig,
+)
+
+# 创建带子进程守卫的工具上下文
+context = ToolRuntimeContext(
+    workspace=Path("./my_project"),
+    allow_execute=True,
+    sandbox_config=SandboxConfig(
+        enabled=True,
+        # Phase 1 不提供网络隔离；必须显式接受网络可用
+        network_policy="allow",
+        timeout_seconds=60.0,      # 60秒超时
+        max_output_bytes=1024 * 1024,  # 1MB 输出上限
+        env_allowlist=["PATH", "HOME"],  # 仅传递指定环境变量
+    ),
+)
+
+# run_command 会自动使用受控子进程后端
+tools = create_project_tools(context)
+```
+
+**平台支持**：
+
+| 平台 | 执行机制 | 已实现的守卫 |
+|------|----------|------|
+| Linux | subprocess + process group | cwd、环境、超时、输出捕获 |
+| Windows | subprocess + process group/taskkill | cwd、环境、超时、输出捕获 |
+| macOS | subprocess + process group | cwd、环境、超时、输出捕获 |
+
+**安全边界**：
+
+- **授权 vs 执行守卫**：通过带授权策略的 `ToolRegistry` 调用时，授权检查先于命令执行
+- **网络策略**：`network_policy="deny"` 在 Phase 1 中返回
+  `network_isolation_unavailable`，不会降级执行
+- **向后兼容**：`sandbox_config=None` 或 `enabled=False` 保持现有行为
+- **非安全沙箱**：Phase 1 不限制命令访问工作目录外的文件，也不提供网络、CPU 或内存隔离；
+  不应使用它运行不受信任的代码
+
+## 1.4.0-1.8.0 稳定能力
+
+- `1.8.0`：`RateLimitPolicy` 与 `RateLimiter` 提供同步、异步令牌桶限流和超时语义
+- `1.7.0`：`WorkflowConfig`、`GraphFrozenError` 和受限动态节点扩展工作流能力
+- `1.6.0`：`RetryPolicy` 与 `execute_with_retry()` 提供可注入时钟的显式异步重试
+- `1.5.0`：延迟加载的 `AsyncChromaMemoryStore` 提供可选持久化异步记忆
+- `1.4.0`：`AsyncLongTermMemoryStore` 与 `AsyncInMemoryLongTermStore` 提供异步长期记忆协议
+
+具体变更、兼容性和设计约束见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 1.3.0 稳定能力
 
@@ -315,16 +383,64 @@ llm = LLM(LLMConfig(
 
 ### 统一配置（0.9.0 新增）
 
-`FrameworkConfig` 提供统一的配置入口：
+`FrameworkConfig.load()` 读取项目配置、用户配置和 `GMAF_*` 环境变量：
 
 ```python
+from pathlib import Path
+
 from general_mini_agent.config import FrameworkConfig
 
-config = FrameworkConfig(
-    log_level="INFO",
-    enable_safe_logging=True,  # 脱敏敏感信息
+config = FrameworkConfig.load()
+print(config.model, config.base_url, config.timeout)
+
+# 显式参数优先级最高，可覆盖文件和环境变量
+config = FrameworkConfig.load(
+    model="deepseek-chat",
+    project_config=Path(".gmaf.toml"),
 )
 ```
+
+配置优先级从高到低为：
+
+1. `FrameworkConfig.load()` 的显式参数
+2. 项目配置文件 `./.gmaf.toml`
+3. 用户配置文件：Linux/macOS 为 `~/.config/gmaf/config.toml`，Windows 为 `%APPDATA%/gmaf/config.toml`
+4. `GMAF_*` 环境变量
+5. 内置默认值
+
+项目配置文件示例（不要提交真实密钥）：
+
+仓库同时提供不含密钥的 [`.gmaf.toml.example`](.gmaf.toml.example)，可以复制为
+`.gmaf.toml` 后再填写本地配置。
+
+```toml
+# .gmaf.toml
+api_key = "your-api-key"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+timeout = 60.0
+max_retries = 2
+provider = "openai-compatible"
+# context_window = 65536
+# reserved_output_tokens = 4096
+```
+
+也可以使用环境变量：
+
+```bash
+# Linux/macOS
+export GMAF_API_KEY=your-api-key
+export GMAF_BASE_URL=https://api.openai.com/v1
+export GMAF_MODEL=gpt-4o-mini
+
+# Windows PowerShell
+$env:GMAF_API_KEY = "your-api-key"
+$env:GMAF_BASE_URL = "https://api.openai.com/v1"
+$env:GMAF_MODEL = "gpt-4o-mini"
+```
+
+CLI 用户可以运行 `gmaf init` 生成 `.gmaf.toml` 模板，再运行 `gmaf doctor -v`
+检查配置。CLI 的 `run` 和 `chat` 会自动调用 `FrameworkConfig.load()`。
 
 ### 安全日志（0.9.0 新增）
 
@@ -561,6 +677,9 @@ LLM_RESERVED_OUTPUT_TOKENS=4096
 `LLM_CONTEXT_WINDOW` 必须按所用模型配置；框架不会根据模型名称猜测容量。Chat Demo
 默认预留 `4096` Token 给模型输出。也可以直接构造 `LLMConfig` 接入其他 OpenAI 兼容服务。
 
+上面的 `.env` 变量由 Demo 使用；CLI 和 `FrameworkConfig` 使用的是 `.gmaf.toml`
+以及 `GMAF_*` 环境变量，两套配置名称不要混用。
+
 ## 快速开始
 
 ```python
@@ -608,7 +727,7 @@ python demo/async_debate_demo.py
 
 ## 稳定 API
 
-`1.2.0` 的稳定公共入口由 `general_mini_agent` 包导出：
+`1.9.0` 的稳定公共入口由 `general_mini_agent` 包导出：
 
 - 同步模型：`ChatModel`、`StreamingChatModel`、`LLM`、`LLMConfig`、`LLMResponse`、
   `ModelRequestError`、`ToolCallDelta`、`StreamChunk`
@@ -626,6 +745,9 @@ python demo/async_debate_demo.py
   `InMemoryLongTermStore`、`ChromaMemoryStore`、`MemoryStoreError`、`MemoryRecordNotFound`
 - 异步长期记忆：`AsyncLongTermMemoryStore`、`AsyncInMemoryLongTermStore`、`AsyncChromaMemoryStore`
 - 重试策略：`RetryPolicy`、`execute_with_retry`
+- 速率限制：`RateLimitPolicy`、`RateLimiter`
+- 命令执行守卫：`SandboxConfig`、`SandboxResult`、`CommandSandbox`、
+  `is_sandbox_available`、`get_platform_info`
 - 多 Agent：`Debate`、`DebateConfig`、`DebateRole`、`DebateRound`、`DebateTurn`、
   `DebateResult`、`DebateStopReason`、`DebateStreamEvent`、`create_debate`
 - 异步多 Agent：`AsyncDebate`、`AsyncDebateConfig`、`AsyncDebateRole`、`create_async_debate`

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "general-mini-agent-framework"
-version = "1.8.0"
+version = "1.9.0"
 description = "A lightweight, composable Python Agent core for OpenAI-compatible tool calling."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,7 +18,7 @@ dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "ruff>=0.6.0"]
 demo = ["python-dotenv>=1.0.0"]
 memory = ["chromadb>=0.5.0"]
 release = ["build>=1.0.0", "twine>=5.0.0"]
-cli = ["tomli>=2.0.0; python_version < '3.11'"]
+cli = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["general_mini_agent"]

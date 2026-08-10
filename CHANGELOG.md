@@ -5,6 +5,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.9.0] - 2026-08-10
+
+### 新增
+
+- **受控命令执行**：`SandboxConfig`、`SandboxResult`、`CommandSandbox` 提供可移植的子进程守卫
+- `ToolRuntimeContext.sandbox_config`: 可选沙箱配置，默认禁用（保持向后兼容）
+- 工作目录逃逸防护：拒绝将 `cwd` 设置到配置根目录之外
+- 环境变量过滤：仅传递白名单内的环境变量
+- 超时强制终止：超时后清理进程组或进程树
+- 有界输出捕获：持续排空 stdout/stderr，保留内容不超过配置上限
+- 平台信息查询：`is_sandbox_available()`、`get_platform_info()`
+- fail-closed：请求未实现的网络隔离时返回错误且不执行命令
+
+### 变更
+
+- 版本号更新为 1.9.0
+- `SandboxConfig`、`SandboxResult`、`CommandSandbox` 导出为公共 API
+
+### 设计原则
+
+- 默认禁用执行守卫，保持现有行为
+- 通过授权策略调用时，权限检查先于命令执行
+- Phase 1 使用 subprocess，提供 cwd、环境、超时和输出捕获守卫
+- Phase 1 不是不受信任代码的安全边界；文件系统、网络和资源隔离保留到后续版本
+
 ## [1.8.0] - 2026-08-07
 
 ### 新增

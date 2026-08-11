@@ -4,7 +4,7 @@
 
 General Mini Agent Framework 是一个轻量级 Python Agent 框架。当前代码提供模型调用、工具注册、ReAct 循环、记忆组件、多 Agent 协作和 HTML 轨迹导出。
 
-本仓库将作为后续扩展和工程化的代码基线。开发时优先保持核心流程清晰，并通过测试约束行为。
+本仓库是最小运行库。开发时优先保持核心流程清晰，并通过与改动风险匹配的验证约束行为。
 
 ## 技术栈
 
@@ -13,28 +13,25 @@ General Mini Agent Framework 是一个轻量级 Python Agent 框架。当前代�
 | Python 3.12 | 开发语言 |
 | httpx | OpenAI 兼容模型 API 客户端 |
 | ChromaDB | 可选长期记忆存储 |
-| python-dotenv | Demo 环境变量加载 |
-| pytest | 自动化测试 |
-
-默认配置使用 DeepSeek 的 OpenAI 兼容接口，但核心协议不应绑定特定模型厂商。
+核心协议不应绑定特定模型厂商。
 
 ## 目录职责
 
 ```text
-core/     框架实现
-demo/     可运行示例
-tests/    单元测试
-docs/     设计和开发文档
+general_mini_agent/  框架运行包
+pyproject.toml       安装和打包配置
 ```
 
 核心模块：
 
-- `core/llm.py`：模型请求与响应解析
-- `core/tools.py`：工具注册、Schema 和执行
-- `core/agent.py`：单 Agent 执行循环
-- `core/memory.py`：短期与长期记忆
-- `core/debate.py`：多 Agent 角色协作
-- `core/trace.py`：运行轨迹渲染
+- `general_mini_agent/llm.py`：模型请求与响应解析
+- `general_mini_agent/tools.py`：工具注册、Schema 和执行
+- `general_mini_agent/agent.py`：单 Agent 执行循环
+- `general_mini_agent/memory.py`：短期记忆
+- `general_mini_agent/long_term_memory.py`：长期记忆
+- `general_mini_agent/debate.py`：多 Agent 角色协作
+- `general_mini_agent/workflow.py`：工作流编排
+- `general_mini_agent/trace.py`：运行轨迹渲染
 
 ## 开发约束
 
@@ -45,8 +42,8 @@ docs/     设计和开发文档
 5. 外部服务调用需要超时、错误分类和可测试的替代实现。
 6. 可选依赖继续使用延迟加载。
 7. 不在源码、文档或测试中写入真实 API Key。
-8. 修改行为时添加与风险匹配的测试。
-9. 文档只描述当前真实存在的能力，规划内容写入 `ROADMAP.md`。
+8. 修改行为时执行与风险匹配的验证；如本地维护测试，应同步更新。
+9. 文档只描述当前真实存在的能力。
 
 ## 编码风格
 
@@ -59,17 +56,14 @@ docs/     设计和开发文档
 ## 验证命令
 
 ```bash
-pytest tests -v
-python -m compileall -q core demo tests
+python -m compileall -q general_mini_agent
+python -m pip install .
+python -c "import general_mini_agent; print(general_mini_agent.__version__)"
 ```
-
-需要真实模型服务的 Demo 不属于默认离线测试。运行前从 `.env.example` 创建 `.env` 并配置有效密钥。
 
 ## 开发优先级
 
 1. 状态管理和工具隔离正确性
-2. 流式、多 Agent 与长期记忆测试
-3. 项目打包和可复现开发环境
-4. 异步接口、复杂编排和可观测性
-
-详细架构见 `PLAN.md`，后续路线见 `ROADMAP.md`。
+2. 同步、流式、异步和多 Agent 路径一致性
+3. 项目打包和可复现运行环境
+4. 长期记忆、复杂编排和可观测性

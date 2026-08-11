@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-# 重用同步版本的结果类型
 from .agent import (
     DEFAULT_SYSTEM_PROMPT,
     AgentResult,
@@ -16,23 +15,25 @@ from .agent import (
     ToolCallEvent,
     TraceEvent,
 )
+from .agent_kernel import (
+    accumulate_usage,
+    build_done_event,
+    build_model_error_event,
+    build_stream_final_events,
+    execute_tool_calls_async,
+    make_tool_executor_async,
+    result_from_decision,
+    result_max_iterations,
+)
 from .agent_protocol import (
     AgentStopReason,
     AssistantTurn,
     StreamingTurnAccumulator,
-    ToolOutcome,
     TurnDecision,
     append_assistant_turn,
-    append_tool_outcomes,
-    build_incomplete_trace,
-    build_tool_trace,
     classify_turn,
-    clean_final_content,
-    invalid_arguments_result,
-    safe_error_message,
 )
 from .async_llm import AsyncChatModel
-from .async_long_term_memory import AsyncLongTermMemoryStore
 from .async_tools import AsyncToolRegistry
 from .context import ContextBudgetExceeded, ContextPolicy
 from .events import EventSink, RunContext, RunEventEmitter
@@ -187,14 +188,20 @@ class AsyncAgent:
                     request_messages,
                     tools=self.registry.schemas(),
                 )
-            except ModelRequestError:
-                trace.append({
+            except ModelRequestError as exc:
+                # 统一错误语义：记录 error_code 和 status_code
+                error = str(exc)
+                trace_entry: dict[str, Any] = {
                     "type": "model_error",
                     "iteration": iteration,
-                    "message": "model request failed",
-                })
+                    "error_code": exc.error_code,
+                    "message": error,
+                }
+                if exc.status_code is not None:
+                    trace_entry["status_code"] = exc.status_code
+                trace.append(trace_entry)
                 emitter.emit(
-                    "run_finished", {"stop_reason": "model_error", "error": "model request failed"}
+                    "run_finished", {"stop_reason": "model_error", "error": error}
                 )
                 return AgentResult(
                     content="",
@@ -202,11 +209,11 @@ class AsyncAgent:
                     usage=total_usage,
                     iterations=iteration,
                     stop_reason="model_error",
-                    error="model request failed",
+                    error=error,
                     run_id=emitter.run_id,
                 )
 
-            self._accumulate_usage(total_usage, response.usage)
+            accumulate_usage(total_usage, response.usage)
 
             # 使用协议接口处理响应
             turn = AssistantTurn.from_response(response)
@@ -214,44 +221,42 @@ class AsyncAgent:
             decision = classify_turn(turn)
 
             if decision.action == "continue":
-                # 执行所有工具调用
-                outcomes = []
-                for index, call in enumerate(turn.tool_calls):
-                    execution = (
-                        invalid_arguments_result(call)
-                        if call.arguments is None
-                        else await self.registry.execute_async(call.name, call.arguments)
-                    )
-                    outcomes.append(ToolOutcome(call, execution))
-                    trace_event = build_tool_trace(iteration, turn, index, call, execution)
-                    trace.append(trace_event)
-                    self._call_hook("on_tool_call", dict(trace_event))
-                append_tool_outcomes(messages, outcomes)
+                # 调用共享内核执行工具
+                step_outcome = await execute_tool_calls_async(
+                    turn,
+                    iteration,
+                    make_tool_executor_async(self.registry.execute_async),
+                    hook_call=lambda d: self._call_hook("on_tool_call", d),
+                )
+                trace.extend(step_outcome.trace_events)
+                for outcome in step_outcome.outcomes:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": outcome.call.id,
+                        "content": outcome.result.content,
+                    })
                 continue
 
-            if decision.action == "complete":
-                return self._result_from_decision(
-                    decision, turn, trace, total_usage, iteration, emitter, user_input
-                )
-
-            if decision.action == "stop_error":
-                return self._result_from_decision(
-                    decision, turn, trace, total_usage, iteration, emitter, user_input
+            if decision.action in ("complete", "stop_error"):
+                return result_from_decision(
+                    decision=decision,
+                    turn=turn,
+                    trace=trace,
+                    usage=total_usage,
+                    iteration=iteration,
+                    emitter=emitter,
+                    user_input=user_input,
+                    commit_fn=self._commit_exchange,
+                    hook_call=self._call_hook,
+                    run_id=emitter.run_id,
                 )
 
         # 超时返回
-        trace.append({
-            "type": "max_iterations",
-            "iteration": self.max_iterations,
-            "message": "maximum iterations reached",
-        })
-        emitter.emit("run_finished", {"stop_reason": "max_iterations"})
-        return AgentResult(
-            content="（已达最大迭代次数，未能得出最终答案）",
+        return result_max_iterations(
+            max_iterations=self.max_iterations,
             trace=trace,
             usage=total_usage,
-            iterations=self.max_iterations,
-            stop_reason="max_iterations",
+            emitter=emitter,
             run_id=emitter.run_id,
         )
 
@@ -283,7 +288,7 @@ class AsyncAgent:
                 "message": error,
             })
             yield {"type": "iteration_start", "iteration": 0}
-            yield self._done_event(
+            yield build_done_event(
                 content="",
                 trace=trace,
                 usage=total_usage,
@@ -301,7 +306,7 @@ class AsyncAgent:
                 "message": error,
             })
             yield {"type": "iteration_start", "iteration": 0}
-            yield self._done_event(
+            yield build_done_event(
                 content="",
                 trace=trace,
                 usage=total_usage,
@@ -326,7 +331,7 @@ class AsyncAgent:
                     "error_code": "context_budget_exceeded",
                     "message": error,
                 })
-                yield self._done_event(
+                yield build_done_event(
                     content="",
                     trace=trace,
                     usage=total_usage,
@@ -350,9 +355,9 @@ class AsyncAgent:
 
                 # 累加 usage
                 turn = accumulator.finalize()
-                self._accumulate_usage(total_usage, turn.usage)
+                accumulate_usage(total_usage, turn.usage)
             except ModelRequestError as exc:
-                self._accumulate_usage(total_usage, accumulator._usage)
+                accumulate_usage(total_usage, accumulator._usage)
                 error = str(exc)
                 trace.append({
                     "type": "model_error",
@@ -360,16 +365,13 @@ class AsyncAgent:
                     "error_code": exc.error_code,
                     "message": error,
                 })
-                model_error: ModelErrorEvent = {
-                    "type": "model_error",
-                    "iteration": iteration,
-                    "error_code": exc.error_code,
-                    "error": error,
-                }
-                if exc.status_code is not None:
-                    model_error["status_code"] = exc.status_code
-                yield model_error
-                yield self._done_event(
+                yield build_model_error_event(
+                    iteration=iteration,
+                    error_code=exc.error_code,
+                    error=error,
+                    status_code=exc.status_code,
+                )
+                yield build_done_event(
                     content="",
                     trace=trace,
                     usage=total_usage,
@@ -384,91 +386,44 @@ class AsyncAgent:
             decision = classify_turn(turn)
 
             if decision.action == "continue":
-                # 执行所有工具调用
-                outcomes = []
-                for index, call in enumerate(turn.tool_calls):
-                    execution = (
-                        invalid_arguments_result(call)
-                        if call.arguments is None
-                        else await self.registry.execute_async(call.name, call.arguments)
-                    )
-                    outcomes.append(ToolOutcome(call, execution))
+                # 调用共享内核执行工具
+                step_outcome = await execute_tool_calls_async(
+                    turn,
+                    iteration,
+                    make_tool_executor_async(self.registry.execute_async),
+                    hook_call=lambda d: self._call_hook("on_tool_call", d),
+                )
+                trace.extend(step_outcome.trace_events)
+                for outcome in step_outcome.outcomes:
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": outcome.call.id,
+                        "content": outcome.result.content,
+                    })
 
-                    # 构建并发送事件
-                    tool_event: ToolCallEvent = {
-                        "type": "tool_call",
-                        "iteration": iteration,
-                        "index": index,
-                        "id": call.id,
-                        "name": call.name,
-                        "arguments": call.arguments,
-                        "raw_arguments": call.raw_arguments or "",
-                    }
-                    if execution.error_code is not None:
-                        tool_event["error_code"] = execution.error_code
-
-                    observation_event: ObservationEvent = {
-                        "type": "observation",
-                        "iteration": iteration,
-                        "index": index,
-                        "tool_call_id": call.id,
-                        "name": call.name,
-                        "text": execution.content,
-                    }
-                    if execution.error_code is not None:
-                        observation_event["error_code"] = execution.error_code
-
+                # yield 流式事件
+                for tool_event in step_outcome.stream_tool_events:
                     yield tool_event
-                    yield observation_event
-
-                    # 构建trace事件
-                    trace_event = build_tool_trace(iteration, turn, index, call, execution)
-                    trace.append(trace_event)
-                    self._call_hook("on_tool_call", dict(trace_event))
-
-                append_tool_outcomes(messages, outcomes)
+                for obs_event in step_outcome.stream_observation_events:
+                    yield obs_event
                 continue
 
-            if decision.action == "complete":
-                clean = clean_final_content(turn.content or "")
-                yield {
-                    "type": "final_answer",
-                    "iteration": iteration,
-                    "text": clean,
-                }
-                trace.append({
-                    "type": "final_answer",
-                    "iteration": iteration,
-                    "thought": turn.content or "",
-                    "final_answer": clean,
-                })
-                self._call_hook("on_final", dict(trace[-1]))
-                self._commit_exchange(user_input, clean)
-                yield self._done_event(
-                    content=clean,
+            if decision.action in ("complete", "stop_error"):
+                events = build_stream_final_events(
+                    decision=decision,
+                    turn=turn,
+                    iteration=iteration,
                     trace=trace,
                     usage=total_usage,
-                    iterations=iteration + 1,
-                    stop_reason="completed",
-                    finish_reason=turn.finish_reason,
+                    user_input=user_input,
+                    commit_fn=self._commit_exchange,
+                    hook_call=self._call_hook,
                 )
+                for event in events:
+                    yield event
                 return
 
-            if decision.action == "stop_error":
-                trace_event = build_incomplete_trace(iteration, turn, decision)
-                trace.append(trace_event)
-                yield self._done_event(
-                    content=turn.content or "",
-                    trace=trace,
-                    usage=total_usage,
-                    iterations=iteration + 1,
-                    stop_reason=decision.stop_reason or "incomplete",
-                    finish_reason=turn.finish_reason,
-                    error=safe_error_message(decision),
-                )
-                return
-
-        yield self._done_event(
+        yield build_done_event(
             content="（已达最大迭代次数，未能得出最终答案）",
             trace=trace,
             usage=total_usage,
@@ -477,31 +432,6 @@ class AsyncAgent:
         )
 
     # ── 内部方法 ────────────────────────────────────────
-
-    @staticmethod
-    def _done_event(
-        *,
-        content: str,
-        trace: list[TraceEvent],
-        usage: dict[str, int],
-        iterations: int,
-        stop_reason: AgentStopReason,
-        finish_reason: str | None = None,
-        error: str | None = None,
-    ) -> DoneEvent:
-        event: DoneEvent = {
-            "type": "done",
-            "content": content,
-            "trace": trace,
-            "usage": usage,
-            "iterations": iterations,
-            "stop_reason": stop_reason,
-        }
-        if finish_reason is not None:
-            event["finish_reason"] = finish_reason
-        if error is not None:
-            event["error"] = error
-        return event
 
     def _format_tool_descriptions(self) -> str:
         """生成工具描述文本（嵌入 system prompt）"""
@@ -570,76 +500,7 @@ class AsyncAgent:
                 {"role": "assistant", "content": assistant_content},
             ])
 
-    def _accumulate_usage(self, total: dict, current: dict) -> None:
-        for key, val in current.items():
-            if isinstance(val, int):
-                total[key] = total.get(key, 0) + val
-
     def _call_hook(self, name: str, data: dict) -> None:
         hook = self.hooks.get(name)
         if hook:
             hook(data)
-
-    def _result_from_decision(
-        self,
-        decision: TurnDecision,
-        turn: AssistantTurn,
-        trace: list[TraceEvent],
-        usage: dict[str, int],
-        iteration: int,
-        emitter: RunEventEmitter,
-        user_input: str,
-    ) -> AgentResult:
-        """集中处理 decision 的结果创建和 run_finished 事件发射"""
-        if decision.action == "complete":
-            clean_content = clean_final_content(turn.content or "")
-            trace.append({
-                "type": "final",
-                "iteration": iteration,
-                "thought": turn.content or "",
-                "final_answer": clean_content,
-            })
-            self._call_hook("on_final", dict(trace[-1]))
-            self._commit_exchange(user_input, clean_content)
-            emitter.emit("run_finished", {"stop_reason": "completed", "answer": clean_content})
-            return AgentResult(
-                content=clean_content,
-                trace=trace,
-                usage=usage,
-                iterations=iteration + 1,
-                run_id=emitter.run_id,
-            )
-
-        if decision.action == "stop_error":
-            error_message = safe_error_message(decision)
-            trace.append({
-                "type": "model_error",
-                "iteration": iteration,
-                "message": error_message,
-            })
-            emitter.emit(
-                "run_finished",
-                {"stop_reason": decision.stop_reason or "model_error", "error": error_message}
-            )
-            # For incomplete results, return the content; for model_error, return empty
-            content = turn.content if decision.stop_reason == "incomplete" else ""
-            return AgentResult(
-                content=content,
-                trace=trace,
-                usage=usage,
-                iterations=iteration,
-                stop_reason=decision.stop_reason or "model_error",
-                error=error_message,
-                run_id=emitter.run_id,
-            )
-
-        # 兜底：不应到达这里
-        return AgentResult(
-            content="",
-            trace=trace,
-            usage=usage,
-            iterations=iteration,
-            stop_reason="model_error",
-            error=f"unexpected decision action: {decision.action}",
-            run_id=emitter.run_id,
-        )

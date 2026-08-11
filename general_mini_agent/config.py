@@ -36,6 +36,7 @@ class FrameworkConfig:
     model: str
     timeout: float = 60.0
     max_retries: int = 2
+    max_tokens: int | None = None
     context_window: int | None = None
     reserved_output_tokens: int | None = None
     provider: str = "openai-compatible"
@@ -112,7 +113,7 @@ class FrameworkConfig:
                         raise ValueError(
                             f"invalid value for {env_key}: {env_value!r}"
                         )
-                elif name in ("max_retries", "context_window", "reserved_output_tokens"):
+                elif name in ("max_retries", "max_tokens", "context_window", "reserved_output_tokens"):
                     try:
                         return int(env_value)
                     except ValueError:
@@ -130,6 +131,7 @@ class FrameworkConfig:
         model = get_value("model", "GMAF_MODEL", "gpt-3.5-turbo")
         timeout = get_value("timeout", "GMAF_TIMEOUT", 60.0)
         max_retries = get_value("max_retries", "GMAF_MAX_RETRIES", 2)
+        max_tokens = get_value("max_tokens", "GMAF_MAX_TOKENS", None)
         context_window = get_value("context_window", "GMAF_CONTEXT_WINDOW", None)
         reserved_output_tokens = get_value(
             "reserved_output_tokens", "GMAF_RESERVED_OUTPUT_TOKENS", None
@@ -143,6 +145,7 @@ class FrameworkConfig:
             model=model,
             timeout=timeout,
             max_retries=max_retries,
+            max_tokens=max_tokens,
             context_window=context_window,
             reserved_output_tokens=reserved_output_tokens,
             provider=provider,

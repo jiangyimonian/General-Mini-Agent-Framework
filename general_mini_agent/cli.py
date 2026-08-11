@@ -253,6 +253,7 @@ def do_run(
             model=config.model,
             timeout=config.timeout,
             max_retries=config.max_retries,
+            max_tokens=config.max_tokens,
         )
         llm = LLM(llm_config)
     except Exception as e:
@@ -303,6 +304,7 @@ def do_chat(
             model=config.model,
             timeout=config.timeout,
             max_retries=config.max_retries,
+            max_tokens=config.max_tokens,
         )
         llm = LLM(llm_config)
     except Exception as e:
@@ -356,6 +358,7 @@ def do_chat(
 
             try:
                 print("\n助手: ", end="", flush=True)
+                has_output = False
                 for event in agent.run_stream(user_input):
                     # 统一获取事件属性
                     if isinstance(event, dict):
@@ -371,6 +374,7 @@ def do_chat(
 
                     if event_type == "thought_chunk":
                         print(text, end="", flush=True)
+                        has_output = True
                     elif event_type == "tool_call":
                         print(f"\n\n🔧 调用工具: {name}", flush=True)
                     elif event_type == "observation":
@@ -381,6 +385,12 @@ def do_chat(
                         pass
                     elif event_type == "model_error":
                         print(f"\n❌ 模型错误: {error}")
+                    elif event_type == "done":
+                        # 如果没有流式输出，用 done.content 作为后备
+                        if not has_output:
+                            content = event.get("content", "") if isinstance(event, dict) else getattr(event, "content", "")
+                            if content:
+                                print(content, end="", flush=True)
                 print()
 
                 # 保存会话
